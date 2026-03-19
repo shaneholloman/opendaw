@@ -40,20 +40,57 @@ Declare parameters using `// @param` comments at the top of your code:
 
 ```javascript
 // @param gain 1.0
-// @param mix 0.5
-// @param drive 0.0
+// @param cutoff 1000 20 20000 exp Hz
+// @param mode 0 0 3 int
+// @param bypass false
 ```
 
-Each `@param` directive creates an automatable knob on the device panel. The syntax is:
+Each `@param` directive creates an automatable knob on the device panel. The full syntax is:
 
 ```
-// @param <label> [default]
+// @param <name> [default] [min max type [unit]]
 ```
 
-- **label** — Parameter name (single word, no spaces). Appears on the knob.
-- **default** — Optional default value between 0.0 and 1.0. Defaults to 0.0 if omitted.
+### Simple (unipolar)
 
-Parameters are reconciled on each compile: new parameters are added, removed parameters are deleted, and existing parameters keep their current value.
+```
+// @param gain           → 0–1, default 0
+// @param gain 0.5       → 0–1, default 0.5
+```
+
+The knob value and `paramChanged` value are in the 0–1 range.
+
+### Mapped
+
+```
+// @param cutoff 1000 20 20000 exp Hz    → exponential 20–20000, default 1000
+// @param time 500 1 2000 linear ms      → linear 1–2000, default 500
+// @param mode 0 0 3 int                 → integer 0–3, default 0
+```
+
+The knob displays the mapped value with the unit. `paramChanged` receives the mapped value directly — no manual scaling needed.
+
+### Boolean
+
+```
+// @param bypass false         → Off/On, default Off
+// @param bypass true          → Off/On, default On
+// @param bypass bool          → Off/On, default Off
+```
+
+`paramChanged` receives `0` or `1`.
+
+### Supported mapping types
+
+| Type | Description | paramChanged receives |
+|---|---|---|
+| *(none)* | Unipolar 0–1 | `number` (0–1) |
+| `linear` | Linear scaling between min and max | `number` (min–max) |
+| `exp` | Exponential scaling (for frequency, time) | `number` (min–max) |
+| `int` | Integer snapping between min and max | `number` (integer) |
+| `bool` | On/Off toggle | `number` (0 or 1) |
+
+Parameters are reconciled on each compile: new parameters are added, removed parameters are deleted, and existing parameters keep their current value. Multiple spaces between tokens are allowed for alignment.
 
 ---
 
@@ -117,35 +154,9 @@ class Processor {
 
 ---
 
-## 6. Example: Stereo Tremolo
+## 6. Examples
 
-```javascript
-// @param speed 0.3
-// @param depth 0.5
-
-class Processor {
-    phase = 0
-    speed = 0.3
-    depth = 0.5
-    paramChanged(label, value) {
-        if (label === "speed") this.speed = value
-        if (label === "depth") this.depth = value
-    }
-    process({src, out}, {s0, s1}) {
-        const [srcL, srcR] = src
-        const [outL, outR] = out
-        const freq = 0.5 + this.speed * 19.5
-        const increment = freq / sampleRate
-        for (let i = s0; i < s1; i++) {
-            const mod = 1.0 - this.depth * (0.5 + 0.5 * Math.sin(this.phase * Math.PI * 2))
-            outL[i] = srcL[i] * mod
-            outR[i] = srcR[i] * mod
-            this.phase += increment
-            if (this.phase >= 1.0) this.phase -= 1.0
-        }
-    }
-}
-```
+Select **Examples** in the code editor toolbar to load ready-made processors (Hard Clipper, Ring Modulator, Simple Delay, Biquad Lowpass).
 
 ---
 
@@ -195,22 +206,26 @@ transport state changes (e.g. reset phase on discontinuous).
 Called when a parameter knob changes value.
 
 - label — string, matches the name from the @param comment
-- value — number between 0.0 and 1.0
+- value — the mapped value (number). For unipolar: 0.0–1.0. For linear/exp: min–max.
+  For int: integer in min–max. For bool: 0 or 1.
 
 ## Declaring parameters
 Parameters are declared as comments at the top of the file:
 
-// @param <name> [default]
+// @param <name> [default] [min max type [unit]]
 
-- name: single word, no spaces
-- default: optional float, defaults to 0.0
+Supported types: linear, exp, int, bool.
+If no type is given, the parameter is unipolar (0–1).
+If the default is "true" or "false", the type is bool.
+Multiple spaces between tokens are allowed for alignment.
 
 Each @param creates an automatable knob on the device UI.
 
 Examples:
 // @param gain 1.0
-// @param mix 0.5
-// @param rate
+// @param cutoff  1000  20  20000  exp  Hz
+// @param mode    0     0   3      int
+// @param bypass  false
 
 ## Globals
 - sampleRate — number, the audio sample rate in Hz (e.g. 44100, 48000).
@@ -222,8 +237,9 @@ Examples:
 - The code runs in an AudioWorklet thread. Only AudioWorklet-safe APIs are available
   (Math, typed arrays, basic JS). No console, no setTimeout, no DOM.
 - You can define and use helper classes alongside the Processor class.
-- Performance matters: this runs at audio rate. Avoid allocations inside process().
-  Pre-allocate buffers in the constructor or as class fields.
+- NEVER allocate memory inside process(). No `new`, no array literals, no object
+  literals, no string concatenation, no closures. Any allocation in the audio hot path
+  causes GC pauses and audio glitches. Pre-allocate all buffers and state as class fields.
 
 ## Template
 
