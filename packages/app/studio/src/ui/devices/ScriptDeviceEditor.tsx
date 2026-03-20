@@ -1,16 +1,14 @@
 import css from "./ScriptDeviceEditor.sass?inline"
-import {DeviceHost, EffectDeviceBoxAdapter, parseParams, ParameterAdapterSet} from "@opendaw/studio-adapters"
-import {asInstanceOf, Editing, EmptyExec, isDefined, Lifecycle, MutableObservableValue, Nullable, ObservableValue, Observer, Subscription, Terminable, Terminator, UUID} from "@opendaw/lib-std"
+import {DeviceBoxAdapter, DeviceHost, ParameterAdapterSet, ScriptCompiler, ScriptParamDeclaration} from "@opendaw/studio-adapters"
+import {asInstanceOf, Editing, EmptyExec, isDefined, Lifecycle, MutableObservableValue, Nullable, Observable, ObservableValue, Observer, Subscription, Terminable, Terminator, UUID} from "@opendaw/lib-std"
 import {AutomatableParameterFieldAdapter} from "@opendaw/studio-adapters"
 import {Promises} from "@opendaw/lib-runtime"
 import {createElement} from "@opendaw/lib-jsx"
-import {Field, StringField} from "@opendaw/lib-box"
-import {Colors, IconSymbol, Pointers} from "@opendaw/studio-enums"
+import {Colors, IconSymbol} from "@opendaw/studio-enums"
 import {DeviceEditor} from "@/ui/devices/DeviceEditor.tsx"
-import {MenuItems} from "@/ui/devices/menu-items.ts"
 import {Html} from "@opendaw/lib-dom"
 import {StudioService} from "@/service/StudioService"
-import {WerkstattParameterBox} from "@opendaw/studio-boxes"
+import {AudioFileBox, WerkstattParameterBox, WerkstattSampleBox} from "@opendaw/studio-boxes"
 import {ControlBuilder} from "@/ui/devices/ControlBuilder"
 import {Button} from "@/ui/components/Button"
 import {Checkbox} from "@/ui/components/Checkbox"
@@ -19,7 +17,8 @@ import {Icon} from "@/ui/components/Icon"
 import {Column} from "@/ui/devices/Column"
 import {LKR} from "@/ui/devices/constants"
 import {CodeEditorExample} from "@/ui/werkstatt-editor/CodeEditorState"
-import {createScriptCompiler, ScriptCompilerConfig} from "@/ui/werkstatt-editor/ScriptCompiler"
+import {SampleSelector, SampleSelectStrategy} from "@/ui/devices/SampleSelector"
+import {MenuItem} from "@opendaw/studio-core"
 
 const className = Html.adoptStyleSheet(css, "ScriptDeviceEditor")
 
@@ -35,21 +34,18 @@ const boolModel = (editing: Editing, parameter: AutomatableParameterFieldAdapter
         }
     }
 
-type ScriptDeviceBox = {
-    readonly code: StringField
-    readonly parameters: Field<Pointers.Parameter>
-}
-
-type ScriptAdapter = EffectDeviceBoxAdapter & {
-    readonly box: ScriptDeviceBox
+type ScriptAdapter = DeviceBoxAdapter & {
+    readonly box: ScriptCompiler.DeviceBox
     readonly parameters: ParameterAdapterSet
+    readonly codeChanged: Observable<void>
 }
 
 export type ScriptDeviceEditorConfig = {
-    readonly compiler: ScriptCompilerConfig
+    readonly compiler: ScriptCompiler.Config
     readonly defaultCode: string
     readonly examples: ReadonlyArray<CodeEditorExample>
     readonly icon: IconSymbol
+    readonly populateMenu: (parent: MenuItem, service: StudioService, deviceHost: DeviceHost, adapter: ScriptAdapter) => void
     readonly populateMeter: (construct: {
         lifecycle: Lifecycle,
         service: StudioService,
@@ -68,19 +64,25 @@ type Construct = {
 export const ScriptDeviceEditor = ({lifecycle, service, adapter, deviceHost, config}: Construct) => {
     const {project} = service
     const {editing, midiLearning} = project
-    const compiler = createScriptCompiler(config.compiler)
+    const compiler = ScriptCompiler.create(config.compiler)
     const box = adapter.box
     const storedCode = box.code.getValue()
     const userCode = storedCode.length > 0 ? compiler.stripHeader(storedCode) : config.defaultCode
+    let compiling = false
     const compile = async (code: string) => {
-        const result = await Promises.tryCatch(compiler.compile(service.audioContext, editing, box, code))
-        if (result.status === "resolved") {
-            errorIcon.classList.add("hidden")
-            errorIcon.title = ""
-        } else {
-            errorIcon.classList.remove("hidden")
-            errorIcon.title = String(result.error)
-            throw result.error
+        compiling = true
+        try {
+            const result = await Promises.tryCatch(compiler.compile(service.audioContext, editing, box, code))
+            if (result.status === "resolved") {
+                errorIcon.classList.add("hidden")
+                errorIcon.title = ""
+            } else {
+                errorIcon.classList.remove("hidden")
+                errorIcon.title = String(result.error)
+                throw result.error
+            }
+        } finally {
+            compiling = false
         }
     }
     if (storedCode.length > 0) {
@@ -121,12 +123,18 @@ export const ScriptDeviceEditor = ({lifecycle, service, adapter, deviceHost, con
                     marginTop: "1em"
                 }}><Icon symbol={IconSymbol.Code}/></Button>
     )
+    let lastErrorMessage = ""
     const errorIcon: HTMLElement = (
-        <div className="error hidden"><Icon symbol={IconSymbol.Bug}/></div>
+        <div className="error hidden"
+             style={{cursor: "pointer"}}
+             onclick={() => navigator.clipboard.writeText(lastErrorMessage)}>
+            <Icon symbol={IconSymbol.Bug}/>
+        </div>
     )
     const set = UUID.newSet<{ uuid: UUID.Bytes, lifecycle: Terminable }>(({uuid}) => uuid)
     lifecycle.ownAll(
         service.engine.subscribeDeviceMessage(UUID.toString(adapter.uuid), message => {
+            lastErrorMessage = message
             errorIcon.classList.remove("hidden")
             errorIcon.title = message
         }),
@@ -137,6 +145,9 @@ export const ScriptDeviceEditor = ({lifecycle, service, adapter, deviceHost, con
                 if (isActive) {service.closeCodeEditor()}
             }
         },
+        adapter.codeChanged.subscribe(() => {
+            if (!compiling) {compiler.load(service.audioContext, box).finally(EmptyExec)}
+        }),
         service.activeCodeEditor.catchupAndSubscribe(option => {
             const isActive = option.map(state => UUID.equals(state.handler.uuid, adapter.uuid)).unwrapOrElse(false)
             toggleEditorButton.classList.toggle("active", isActive)
@@ -146,7 +157,7 @@ export const ScriptDeviceEditor = ({lifecycle, service, adapter, deviceHost, con
                 const werkstattParam = asInstanceOf(paramBox, WerkstattParameterBox)
                 const parameter = adapter.parameters.parameterAt(werkstattParam.value.address)
                 const label = werkstattParam.label.getValue()
-                const declarations = parseParams(box.code.getValue())
+                const declarations = ScriptParamDeclaration.parseParams(box.code.getValue())
                 const declaration = declarations.find(decl => decl.label === label)
                 const isBool = isDefined(declaration) && declaration.mapping === "bool"
                 const terminator = new Terminator()
@@ -183,13 +194,68 @@ export const ScriptDeviceEditor = ({lifecycle, service, adapter, deviceHost, con
             },
             onRemoved: ({box: {address: {uuid}}}) =>
                 set.removeByKey(uuid).lifecycle.terminate()
+        }),
+        box.samples.pointerHub.catchupAndSubscribe({
+            onAdded: ({box: sampleBox}) => {
+                const sample = asInstanceOf(sampleBox, WerkstattSampleBox)
+                const label = sample.label.getValue()
+                const terminator = new Terminator()
+                const fileNameLabel: HTMLSpanElement = (<span className="sample-name"/>)
+                const dropZone: HTMLElement = (
+                    <div className="sample-drop">
+                        <Icon symbol={IconSymbol.Waveform}/>
+                    </div>
+                )
+                const sampleSelector = new SampleSelector(service, {
+                    hasSample: () => sample.file.nonEmpty(),
+                    replace: (replacement) => replacement.match({
+                        none: () => sample.file.targetVertex.ifSome(({box: fileBox}) => {
+                            const mustDelete = fileBox.pointerHub.size() === 1
+                            sample.file.defer()
+                            if (mustDelete) {fileBox.delete()}
+                        }),
+                        some: () => SampleSelectStrategy.changePointer(sample.file, replacement)
+                    })
+                })
+                terminator.ownAll(
+                    sample.file.catchupAndSubscribe(pointer => pointer.targetVertex.match({
+                        none: () => {
+                            dropZone.removeAttribute("sample")
+                            fileNameLabel.textContent = ""
+                        },
+                        some: ({box: fileBox}) => {
+                            const name = asInstanceOf(fileBox, AudioFileBox).fileName.getValue()
+                            dropZone.setAttribute("sample", name)
+                            fileNameLabel.textContent = name
+                        }
+                    })),
+                    sampleSelector.configureBrowseClick(dropZone),
+                    sampleSelector.configureContextMenu(dropZone),
+                    sampleSelector.configureDrop(dropZone)
+                )
+                const element: HTMLElement = (
+                    <Column ems={LKR} color={Colors.cream}>
+                        <h5>{label}</h5>
+                        {dropZone}
+                        {fileNameLabel}
+                    </Column>
+                )
+                element.style.order = String(sample.index.getValue())
+                terminator.own(sample.index.catchupAndSubscribe(owner =>
+                    element.style.order = String(owner.getValue())))
+                controls.appendChild(element)
+                set.add({uuid: sampleBox.address.uuid, lifecycle: terminator})
+                terminator.own({terminate: () => element.remove()})
+            },
+            onRemoved: ({box: {address: {uuid}}}) =>
+                set.removeByKey(uuid).lifecycle.terminate()
         })
     )
     return (
         <DeviceEditor lifecycle={lifecycle}
                       project={project}
                       adapter={adapter}
-                      populateMenu={parent => MenuItems.forEffectDevice(parent, service, deviceHost, adapter)}
+                      populateMenu={parent => config.populateMenu(parent, service, deviceHost, adapter)}
                       populateControls={() => (
                           <div className={className}>
                               {controls}
