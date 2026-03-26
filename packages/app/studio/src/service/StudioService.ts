@@ -20,6 +20,7 @@ import {
     tryCatch,
     UUID
 } from "@opendaw/lib-std"
+import {ChainedSampleProvider, ChainedSoundfontProvider} from "@opendaw/studio-p2p"
 import {populateStudioMenu} from "@/service/StudioMenu"
 import {Snapping} from "@/ui/timeline/Snapping.ts"
 import {PanelContents} from "@/ui/workspace/PanelContents.tsx"
@@ -70,7 +71,9 @@ import {Surface} from "@/ui/surface/Surface"
 import {SoftwareMIDIPanel} from "@/ui/software-midi/SoftwareMIDIPanel"
 import {Mixdowns} from "@/service/Mixdowns"
 import {ShadertoyState} from "@/ui/shadertoy/ShadertoyState"
-import {CodeEditorState} from "@/ui/werkstatt-editor/CodeEditorState"
+import {CodeEditorState} from "@/ui/code-editor/CodeEditorState"
+import {RoomAwareness} from "@/service/RoomAwareness"
+import {ChatService} from "@/chat/ChatService"
 
 /**
  * I am just piling stuff after stuff in here to boot the environment.
@@ -119,6 +122,8 @@ export class StudioService implements ProjectEnv {
     readonly #activeCodeEditor: MutableObservableOption<CodeEditorState> = new MutableObservableOption()
 
     #factoryFooterLabel: Option<Provider<FooterLabel>> = Option.None
+    readonly #roomAwareness = new DefaultObservableValue<Nullable<RoomAwareness>>(null)
+    readonly #chatService = new MutableObservableOption<ChatService>()
 
     regionModifierInProgress: boolean = false
 
@@ -127,6 +132,8 @@ export class StudioService implements ProjectEnv {
                 readonly audioDevices: AudioOutputDevice,
                 readonly sampleManager: GlobalSampleLoaderManager,
                 readonly soundfontManager: GlobalSoundfontLoaderManager,
+                readonly chainedSampleProvider: ChainedSampleProvider,
+                readonly chainedSoundfontProvider: ChainedSoundfontProvider,
                 readonly cloudAuthManager: CloudAuthManager,
                 readonly buildInfo: BuildInfo) {
         this.#sampleService = new SampleService(audioContext)
@@ -378,6 +385,10 @@ export class StudioService implements ProjectEnv {
     }
 
     factoryFooterLabel(): Option<Provider<FooterLabel>> {return this.#factoryFooterLabel}
+
+    get roomAwareness(): DefaultObservableValue<Nullable<RoomAwareness>> {return this.#roomAwareness}
+    setRoomAwareness(value: Nullable<RoomAwareness>): void {this.#roomAwareness.setValue(value)}
+    get chatService(): MutableObservableOption<ChatService> {return this.#chatService}
 
     get optShadertoyState(): Option<ShadertoyState> {return this.#shadertoyState}
     get activeCodeEditor(): MutableObservableOption<CodeEditorState> {return this.#activeCodeEditor}

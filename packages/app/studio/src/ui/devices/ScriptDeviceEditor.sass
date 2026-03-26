@@ -1,4 +1,5 @@
 @use "@/mixins"
+@use "@/colors"
 
 component
   display: flex
@@ -16,6 +17,10 @@ component
     grid-auto-columns: 3.5em
     grid-auto-flow: column
     row-gap: 0.25em
+
+    &:empty
+      border-radius: 3px
+      @include colors.panel-background-stripes-dark
 
   .error
     font-size: 16px

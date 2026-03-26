@@ -11,6 +11,7 @@ import {ThreeDots} from "@/ui/spinner/ThreeDots"
 import {Button} from "@/ui/components/Button"
 import {Icon} from "@/ui/components/Icon"
 import {MenuButton} from "@/ui/components/MenuButton"
+import {Dialogs} from "@/ui/components/dialogs"
 import {CodeEditorHandler} from "./CodeEditorHandler"
 import {CodeEditorExample} from "./CodeEditorState"
 
@@ -27,6 +28,7 @@ export const CodeEditorPanel = ({lifecycle, service}: Construct) => {
     const handler: Nullable<CodeEditorHandler> = isDefined(state) ? state.handler : null
     const initialCode = isDefined(state) ? state.initialCode : defaultCode
     const examples: ReadonlyArray<CodeEditorExample> = isDefined(state) ? state.examples : []
+    const starterPrompt = isDefined(state) ? state.starterPrompt : ""
     const setStatus = (text: string, type: "idle" | "success" | "error") => {
         statusLabel.textContent = text
         statusLabel.className = `status ${type}`
@@ -90,6 +92,40 @@ export const CodeEditorPanel = ({lifecycle, service}: Construct) => {
                     }
                     const allowed = ["c", "v", "x", "a", "z", "y"]
                     editor.addCommand(monaco.KeyMod.Alt | monaco.KeyCode.Enter, () => compileCode().finally())
+                    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyC, () => {
+                        const selection = editor.getSelection()
+                        if (!isDefined(selection)) {return}
+                        const text = selection.isEmpty()
+                            ? model.getLineContent(selection.startLineNumber) + model.getEOL()
+                            : model.getValueInRange(selection)
+                        navigator.clipboard.writeText(text).catch(console.warn)
+                    })
+                    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyX, () => {
+                        const selection = editor.getSelection()
+                        if (!isDefined(selection)) {return}
+                        const text = selection.isEmpty()
+                            ? model.getLineContent(selection.startLineNumber) + model.getEOL()
+                            : model.getValueInRange(selection)
+                        navigator.clipboard.writeText(text).then(() => {
+                            if (selection.isEmpty()) {
+                                editor.executeEdits("cut", [{
+                                    range: model.getFullModelRange().setStartPosition(selection.startLineNumber, 1)
+                                        .setEndPosition(selection.startLineNumber + 1, 1),
+                                    text: ""
+                                }])
+                            } else {
+                                editor.executeEdits("cut", [{range: selection, text: ""}])
+                            }
+                        }).catch(console.warn)
+                    })
+                    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyV, () => {
+                        navigator.clipboard.readText().then(text => {
+                            const selection = editor.getSelection()
+                            if (isDefined(selection)) {
+                                editor.executeEdits("paste", [{range: selection, text}])
+                            }
+                        }).catch(console.warn)
+                    })
                     lifecycle.ownAll(
                         Events.subscribe(container, "keydown", event => {
                             if (Keyboard.isControlKey(event) && event.code === "KeyS") {
@@ -119,12 +155,60 @@ export const CodeEditorPanel = ({lifecycle, service}: Construct) => {
                     return (
                         <div className="content">
                             <header>
+                                <Button lifecycle={lifecycle}
+                                        onClick={close}
+                                        appearance={{
+                                            tooltip: "Close editor",
+                                            color: Colors.red,
+                                            framed: true,
+                                            cursor: "pointer"
+                                        }}>
+                                    <Icon symbol={IconSymbol.Close}/>
+                                </Button>
                                 {nameSpan}
                                 <Button lifecycle={lifecycle}
                                         onClick={compileCode}
-                                        appearance={{tooltip: `Compile (${Shortcut.of("Enter", {alt: true}).format()})`}}>
-                                    <span>Compile</span> <Icon symbol={IconSymbol.Play}/>
+                                        appearance={{
+                                            tooltip: `Run (${Shortcut.of("Enter", {alt: true}).format()})`,
+                                            color: Colors.green,
+                                            cursor: "pointer"
+                                        }}>
+                                    <span>Run</span> <Icon symbol={IconSymbol.Play}/>
                                 </Button>
+                                <Button lifecycle={lifecycle}
+                                        onClick={async () => {
+                                            const approved = await Dialogs.approve({
+                                                headline: "Run Clipboard",
+                                                message: "This will replace all code in the editor with the clipboard content and run it.",
+                                                approveText: "Replace & Run",
+                                                reverse: true
+                                            })
+                                            if (!approved) {return}
+                                            const text = await navigator.clipboard.readText()
+                                            editor.executeEdits("clipboard", [{
+                                                range: model.getFullModelRange(),
+                                                text
+                                            }])
+                                            await compileCode()
+                                        }}
+                                        appearance={{tooltip: "Paste from clipboard and run", cursor: "pointer"}}>
+                                    <span>Run Clipboard</span> <Icon symbol={IconSymbol.Paste}/>
+                                </Button>
+                                {starterPrompt.length > 0 && (
+                                    <Button lifecycle={lifecycle}
+                                            onClick={() => navigator.clipboard.writeText(starterPrompt)
+                                                .then(() => Dialogs.info({
+                                                    headline: "AI Prompt Copied",
+                                                    message: "The starter prompt has been copied to your clipboard.\n\nPaste it into an AI assistant (e.g. ChatGPT, Claude) to get help writing code for this device.\n\nThen copy the generated code and use 'From Clipboard' to load it."
+                                                }))
+                                                .catch(reason => setStatus(String(reason), "error"))}
+                                            appearance={{
+                                                tooltip: "Copy AI starter prompt to clipboard",
+                                                cursor: "pointer"
+                                            }}>
+                                        <span>Get Prompt</span> <Icon symbol={IconSymbol.Copy}/>
+                                    </Button>
+                                )}
                                 {examples.length > 0 && (
                                     <MenuButton root={MenuItem.root()
                                         .setRuntimeChildrenProcedure(parent => parent
@@ -138,11 +222,6 @@ export const CodeEditorPanel = ({lifecycle, service}: Construct) => {
                                         <span>Examples</span>
                                     </MenuButton>
                                 )}
-                                <Button lifecycle={lifecycle}
-                                        onClick={close}
-                                        appearance={{tooltip: "Close editor"}}>
-                                    <span>Close Editor</span> <Icon symbol={IconSymbol.Exit}/>
-                                </Button>
                             </header>
                             {container}
                             {statusLabel}

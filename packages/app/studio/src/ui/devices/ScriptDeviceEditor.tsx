@@ -16,7 +16,7 @@ import {ControlIndicator} from "@/ui/components/ControlIndicator"
 import {Icon} from "@/ui/components/Icon"
 import {Column} from "@/ui/devices/Column"
 import {LKR} from "@/ui/devices/constants"
-import {CodeEditorExample} from "@/ui/werkstatt-editor/CodeEditorState"
+import {CodeEditorExample} from "@/ui/code-editor/CodeEditorState"
 import {SampleSelector, SampleSelectStrategy} from "@/ui/devices/SampleSelector"
 import {MenuItem} from "@opendaw/studio-core"
 
@@ -44,6 +44,7 @@ export type ScriptDeviceEditorConfig = {
     readonly compiler: ScriptCompiler.Config
     readonly defaultCode: string
     readonly examples: ReadonlyArray<CodeEditorExample>
+    readonly starterPrompt: string
     readonly icon: IconSymbol
     readonly populateMenu: (parent: MenuItem, service: StudioService, deviceHost: DeviceHost, adapter: ScriptAdapter) => void
     readonly populateMeter: (construct: {
@@ -108,7 +109,8 @@ export const ScriptDeviceEditor = ({lifecycle, service, adapter, deviceHost, con
                 },
                 initialCode: compiler.stripHeader(box.code.getValue()) || config.defaultCode,
                 previousScreen: service.layout.screen.getValue(),
-                examples: config.examples
+                examples: config.examples,
+                starterPrompt: config.starterPrompt
             })
         }
     }
@@ -117,7 +119,9 @@ export const ScriptDeviceEditor = ({lifecycle, service, adapter, deviceHost, con
         <Button lifecycle={lifecycle}
                 onClick={toggleEditor}
                 appearance={{framed: true, tooltip: "Toggle Code Editor"}}
-                style={{fontSize: "16px"}}><Icon symbol={IconSymbol.Code}/></Button>
+                style={{fontSize: "16px", marginTop: "4px"}}>
+            <Icon symbol={IconSymbol.Code}/>
+        </Button>
     )
     let lastErrorMessage = ""
     const errorIcon: HTMLElement = (
