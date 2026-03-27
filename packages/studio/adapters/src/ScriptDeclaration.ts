@@ -1,4 +1,4 @@
-import {asInstanceOf, isDefined, Notifier, Nullable, Observable, StringMapping, Terminable, ValueMapping} from "@opendaw/lib-std"
+import {asInstanceOf, isDefined, Notifier, Nullable, Observable, Option, StringMapping, Terminable, ValueMapping} from "@opendaw/lib-std"
 import {Field, StringField} from "@opendaw/lib-box"
 import {Pointers} from "@opendaw/studio-enums"
 import {WerkstattParameterBox} from "@opendaw/studio-boxes"
@@ -19,6 +19,7 @@ export interface SampleDeclaration {
     readonly label: string
 }
 
+const LABEL_LINE = /^\/\/ @label .+$/m
 const PARAM_LINE = /^\/\/ @param .+$/gm
 const SAMPLE_LINE = /^\/\/ @sample .+$/gm
 const DECLARATION_LINE = /^\/\/ @(?:param|sample) \S+/gm
@@ -103,8 +104,16 @@ const declarationEquals = (a: ParamDeclaration, b: ParamDeclaration): boolean =>
 const declarationFullEquals = (a: ParamDeclaration, b: ParamDeclaration): boolean =>
     declarationEquals(a, b) && Math.abs(a.defaultValue - b.defaultValue) < 1e-6
 
-export namespace ScriptParamDeclaration {
+export namespace ScriptDeclaration {
     export const isEqual = declarationFullEquals
+
+    export const parseLabel = (code: string): Option<string> => {
+        const match = LABEL_LINE.exec(code)
+        if (match === null) {return Option.None}
+        const label = match[0].replace(/^\/\/ @label\s+/, "").trim()
+        if (label.length === 0) {throw new Error("Malformed @label: expected: // @label <name>")}
+        return Option.wrap(label)
+    }
 
     export const parseParams = (code: string): ReadonlyArray<ParamDeclaration> => {
         const params: Array<ParamDeclaration> = []
@@ -210,7 +219,8 @@ export namespace ScriptParamDeclaration {
                             valueMapping: ValueMapping.unipolar(),
                             stringMapping: StringMapping.percent({fractionDigits: 1})
                         }
-                    parametric.createParameter(paramBox.value, valueMapping, stringMapping, label)
+                    parametric.createParameter(paramBox.value, valueMapping, stringMapping, label,
+                        undefined, paramBox.defaultValue.getValue())
                     if (isDefined(declaration)) {cachedDeclarations.set(label, declaration)}
                 }),
                 onRemoved: (({box}) => {

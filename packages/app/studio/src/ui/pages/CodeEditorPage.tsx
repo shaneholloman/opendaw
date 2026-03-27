@@ -1,12 +1,13 @@
 import css from "./CodeEditorPage.sass?inline"
-import {Clipboard, Events, Html} from "@opendaw/lib-dom"
+import {Html} from "@opendaw/lib-dom"
+import {MonacoFactory} from "@/monaco/factory"
 import {Await, createElement, PageContext, PageFactory, RouteLocation} from "@opendaw/lib-jsx"
 import {StudioService} from "@/service/StudioService.ts"
 import {ThreeDots} from "@/ui/spinner/ThreeDots"
 import {Button} from "@/ui/components/Button"
 import {Icon} from "@/ui/components/Icon"
 import {Colors, IconSymbol} from "@opendaw/studio-enums"
-import {isDefined, Option, panic, RuntimeNotifier, UUID} from "@opendaw/lib-std"
+import {Option, panic, RuntimeNotifier, UUID} from "@opendaw/lib-std"
 import {ScriptHost} from "@opendaw/studio-scripting"
 import {MenuButton} from "@/ui/components/MenuButton"
 import {MenuItem, Project} from "@opendaw/studio-core"
@@ -78,80 +79,10 @@ export const CodeEditorPage: PageFactory<StudioService> = ({lifecycle, service}:
                 failure={({retry, reason}) => (<p onclick={retry}>{reason}</p>)}
                 loading={() => ThreeDots()}
                 success={([monaco]) => {
-                    const container = (<div className="monaco-editor"/>)
-                    const modelUri = monaco.Uri.parse("file:///main.ts")
-                    let model = monaco.editor.getModel(modelUri)
-                    if (!model) {
-                        model = monaco.editor.createModel(Examples.Simple, "typescript", modelUri)
-                    }
-                    const editor = monaco.editor.create(container, {
-                        language: "typescript",
-                        quickSuggestions: {
-                            other: true,
-                            comments: false,
-                            strings: false
-                        },
-                        occurrencesHighlight: "off", // prevents Firefox issue
-                        suggestOnTriggerCharacters: true,
-                        acceptSuggestionOnCommitCharacter: true,
-                        acceptSuggestionOnEnter: "on",
-                        wordBasedSuggestions: "off", // Important! Use only TS suggestions
-                        model: model,
-                        theme: "vs-dark",
-                        automaticLayout: true,
-                        stickyScroll: {enabled: false}
+                    const {model, container} = MonacoFactory.create({
+                        monaco, lifecycle, language: "typescript",
+                        uri: "file:///main.ts", initialCode: Examples.Simple
                     })
-                    const allowed = ["c", "v", "x", "a", "z", "y"]
-                    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyC, () => {
-                        const selection = editor.getSelection()
-                        if (!isDefined(selection)) {return}
-                        const text = selection.isEmpty()
-                            ? model.getLineContent(selection.startLineNumber) + model.getEOL()
-                            : model.getValueInRange(selection)
-                        Clipboard.writeText(text)
-                    })
-                    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyX, () => {
-                        const selection = editor.getSelection()
-                        if (!isDefined(selection)) {return}
-                        const text = selection.isEmpty()
-                            ? model.getLineContent(selection.startLineNumber) + model.getEOL()
-                            : model.getValueInRange(selection)
-                        Clipboard.writeText(text).then(() => {
-                            if (selection.isEmpty()) {
-                                editor.executeEdits("cut", [{
-                                    range: model.getFullModelRange().setStartPosition(selection.startLineNumber, 1)
-                                        .setEndPosition(selection.startLineNumber + 1, 1),
-                                    text: ""
-                                }])
-                            } else {
-                                editor.executeEdits("cut", [{range: selection, text: ""}])
-                            }
-                        })
-                    })
-                    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyV, () => {
-                        Clipboard.readText().then(text => {
-                            const selection = editor.getSelection()
-                            if (isDefined(selection)) {
-                                editor.executeEdits("paste", [{range: selection, text}])
-                            }
-                        })
-                    })
-                    lifecycle.ownAll(
-                        Events.subscribe(container, "keydown", event => {
-                            if ((event.ctrlKey || event.metaKey) && allowed.includes(event.key.toLowerCase())) {
-                                return // Let Monaco handle these
-                            }
-                            event.stopPropagation()
-                        }),
-                        Events.subscribe(container, "keyup", event => {
-                            if ((event.ctrlKey || event.metaKey) && allowed.includes(event.key.toLowerCase())) {
-                                return // Let Monaco handle these
-                            }
-                            event.stopPropagation()
-                        }),
-                        Events.subscribe(container, "keypress", event => event.stopPropagation())
-                    )
-                    requestAnimationFrame(() => editor.focus())
                     const compileAndRun = async () => {
                         try {
                             const worker = await monaco.languages.typescript.getTypeScriptWorker()
