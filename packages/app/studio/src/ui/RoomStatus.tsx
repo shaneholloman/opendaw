@@ -5,6 +5,9 @@ import {Clipboard, Html} from "@opendaw/lib-dom"
 import {StudioService} from "@/service/StudioService"
 import {AwarenessUserState, RoomAwareness} from "@/service/RoomAwareness"
 import {Promises} from "@opendaw/lib-runtime"
+import {Icon} from "@/ui/components/Icon"
+import {IconSymbol} from "@opendaw/studio-enums"
+import {TrafficWatch} from "@/ui/TrafficWatch"
 
 const className = Html.adoptStyleSheet(css, "room-status")
 
@@ -19,18 +22,21 @@ export const RoomStatus = ({lifecycle, service}: Construct) => {
         if (isDefined(awareness)) {
             element.style.display = ""
             const roomLabel: HTMLElement = (
-                <span className="room-name"
-                      title="Click to copy join link"
-                      onclick={async () => {
-                          const joinUrl = `${location.origin}/join/${awareness.roomName}`
-                          const {status} = await Promises.tryCatch(Clipboard.writeText(joinUrl))
-                          if (status === "resolved") {
-                              await RuntimeNotifier.info({
-                                  headline: "Clipboard",
-                                  message: `Join link copied to clipboard.`
-                              })
-                          }
-                      }}>{`Room '${awareness.roomName}'`}</span>
+                <div className="room-label">
+                    <Icon symbol={IconSymbol.Copy}/>
+                    <span className="room-name"
+                          title="Click to copy join link"
+                          onclick={async () => {
+                              const joinUrl = `${location.origin}/join/${awareness.roomName}`
+                              const {status} = await Promises.tryCatch(Clipboard.writeText(joinUrl))
+                              if (status === "resolved") {
+                                  await RuntimeNotifier.info({
+                                      headline: "Clipboard",
+                                      message: `Join link copied to clipboard.`
+                                  })
+                              }
+                          }}>{`Room '${awareness.roomName}'`}</span>
+                </div>
             )
             const render = () => {
                 const states = awareness.awareness.getStates()
@@ -43,12 +49,14 @@ export const RoomStatus = ({lifecycle, service}: Construct) => {
                     }
                 })
                 users.sort((first, second) => first.self === second.self ? 0 : first.self ? -1 : 1)
+                const trafficWatch = <TrafficWatch lifecycle={roomLifecycle}
+                                                   trafficMeter={service.trafficMeter.getValue()}/>
                 replaceChildren(element, roomLabel, ...users.map(user => (
-                    <span className={user.self ? "user self" : "user"}>
+                    <div className={user.self ? "user self" : "user"}>
                         <span className="dot" style={{backgroundColor: user.color}}/>
                         <span>{user.name}</span>
-                    </span>
-                )))
+                    </div>
+                )), trafficWatch)
             }
             const awarenessApi = awareness.awareness
             awarenessApi.on("change", render)
