@@ -1,5 +1,5 @@
 import {isDefined, Terminator} from "@opendaw/lib-std"
-import {createElement, Frag, RouteLocation, Router} from "@opendaw/lib-jsx"
+import {createElement, Frag, Router} from "@opendaw/lib-jsx"
 import {WorkspacePage} from "@/ui/workspace/WorkspacePage.tsx"
 import {StudioService} from "@/service/StudioService.ts"
 import {ComponentsPage} from "@/ui/pages/ComponentsPage.tsx"
@@ -17,13 +17,12 @@ import {ImprintPage} from "@/ui/pages/ImprintPage.tsx"
 import {GraphPage} from "@/ui/pages/GraphPage"
 import {CodeEditorPage} from "@/ui/pages/CodeEditorPage"
 import {OpenBundlePage} from "@/ui/pages/OpenBundlePage"
-import {UsersPage} from "@/ui/pages/UsersPage"
-import {RoomsCountPage} from "@/ui/pages/RoomsCountPage"
-import {RoomsDurationPage} from "@/ui/pages/RoomsDurationPage"
+import {DashboardPage} from "@/ui/pages/stats/DashboardPage"
 import {PrivacyPage} from "@/ui/pages/PrivacyPage"
 import {PreferencesPage} from "@/ui/pages/PreferencesPage"
 import {TestPage} from "@/ui/pages/TestPage"
 import {JoinRoomPage} from "@/ui/pages/JoinRoomPage"
+import {PerformancePage} from "@/ui/pages/PerformancePage"
 
 export const App = (service: StudioService) => {
     const terminator = new Terminator()
@@ -58,12 +57,16 @@ export const App = (service: StudioService) => {
                     {path: "/upload", factory: SampleUploadPage},
                     {path: "/colors", factory: ColorsPage},
                     {path: "/graph", factory: GraphPage},
-                    {path: "/stats/users", factory: UsersPage},
-                    {path: "/stats/rooms-created", factory: RoomsCountPage},
-                    {path: "/stats/rooms-duration", factory: RoomsDurationPage},
-                    {path: "/users", factory: () => { RouteLocation.get().navigateTo("/stats/users"); return <div/> }},
+                    {path: "/stats", factory: DashboardPage},
+                    {
+                        path: "/users", factory: (context) => {
+                            history.replaceState(null, "", "/stats")
+                            return DashboardPage(context)
+                        }
+                    },
                     {path: "/open-bundle/*", factory: OpenBundlePage},
                     {path: "/test", factory: TestPage},
+                    {path: "/performance", factory: PerformancePage},
                     {path: "/join/*", factory: JoinRoomPage}
                 ]}
             />

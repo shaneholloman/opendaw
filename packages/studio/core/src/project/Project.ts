@@ -251,7 +251,7 @@ export class Project implements BoxAdaptersContext, Terminable, TerminableOwner 
         }
         worklet.addEventListener("error", handler)
         worklet.addEventListener("processorerror", handler)
-        worklet.connect(worklet.context.destination)
+        worklet.connect(worklet.context.destination, 0)
         this.engine.setWorklet(worklet)
         return worklet
     }
@@ -273,7 +273,6 @@ export class Project implements BoxAdaptersContext, Terminable, TerminableOwner 
 
     stopRecording(): void {
         this.engine.stopRecording()
-        this.editing.mark()
     }
 
     isRecording(): boolean {return Recording.isRecording}
