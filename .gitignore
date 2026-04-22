@@ -23,4 +23,5 @@ lerna-debug.log
 tsconfig.tsbuildinfo
 /packages/server/api.opendaw.studio/
 /packages/server/logs.opendaw.studio/
+/packages/server/presets/
 /assets.opendaw.studio/models/**/model.onnx
