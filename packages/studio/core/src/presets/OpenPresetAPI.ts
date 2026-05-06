@@ -32,9 +32,15 @@ export class OpenPresetAPI {
         return result.value as ReadonlyArray<PresetMeta>
     }
 
-    async load(uuid: UUID.Bytes, progress?: Procedure<unitValue>): Promise<ArrayBuffer> {
+    async load(uuid: UUID.Bytes,
+               progress?: Procedure<unitValue>,
+               signal?: AbortSignal): Promise<ArrayBuffer> {
         const url = `${OpenPresetAPI.FileRoot}/${UUID.toString(uuid)}.odp`
-        const response = await Promises.retry(() => network.limitFetch(url, OpenDAWHeaders))
+        // Cancellable fetches skip the auto-retry: a user-cancelled download
+        // must not silently retry after the dialog has already closed.
+        const response = isDefined(signal)
+            ? await network.limitFetch(url, {...OpenDAWHeaders, signal})
+            : await Promises.retry(() => network.limitFetch(url, OpenDAWHeaders))
         if (!response.ok) {
             return panic(`Failed to fetch preset ${UUID.toString(uuid)}: ${response.status} ${response.statusText}`)
         }
@@ -44,17 +50,23 @@ export class OpenPresetAPI {
         return new Promise<ArrayBuffer>((resolve, reject) => {
             const reader = asDefined(response.body, "No body in response").getReader()
             const chunks: Array<Uint8Array> = []
+            const onAbort = () => reader.cancel().catch(() => {})
+            if (isDefined(signal)) {signal.addEventListener("abort", onAbort, {once: true})}
+            const cleanup = () => {
+                if (isDefined(signal)) {signal.removeEventListener("abort", onAbort)}
+            }
             const nextChunk = ({done, value}: ReadableStreamReadResult<Uint8Array>) => {
                 if (done) {
+                    cleanup()
                     resolve(new Blob(chunks as Array<BlobPart>).arrayBuffer())
                 } else {
                     chunks.push(value)
                     loaded += value.length
                     progress(total > 0 ? loaded / total : 0)
-                    reader.read().then(nextChunk, reject)
+                    reader.read().then(nextChunk, reason => {cleanup(); reject(reason)})
                 }
             }
-            reader.read().then(nextChunk, reject)
+            reader.read().then(nextChunk, reason => {cleanup(); reject(reason)})
         })
     }
 

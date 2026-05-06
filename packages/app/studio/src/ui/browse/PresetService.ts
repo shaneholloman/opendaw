@@ -171,10 +171,10 @@ export class PresetService {
     // entries, deletes the target effect and inserts the preset at the same
     // index. Other categories are no-ops here (they never reach the pager).
     async applyPresetTo(adapter: DeviceBoxAdapter, entry: PresetEntry): Promise<void> {
-        console.debug("[PresetPager] apply", {uuid: entry.uuid, name: entry.name, source: entry.source, category: entry.category})
         const loaded = await Promises.tryCatch(PresetApplication.loadBytes(entry.uuid, entry.source))
         if (loaded.status === "rejected") {
-            console.debug("[PresetPager] apply → load rejected", loaded.error)
+            // User cancelled the download — silent, no error popup.
+            if (Errors.isAbort(loaded.error)) {return}
             await RuntimeNotifier.info({
                 headline: "Could Not Load Preset",
                 message: String(loaded.error)
@@ -184,7 +184,6 @@ export class PresetService {
         const bytes = loaded.value
         const audioUnitBox = adapter.deviceHost().audioUnitBoxAdapter().box
         const cursorKey = cursorKeyFor(adapter)
-        console.debug("[PresetPager] apply → bytes loaded, cursorKey", cursorKey, "bytes", bytes.byteLength)
         if (entry.category === "instrument") {
             this.project.editing.modify(() => {
                 const attempt = PresetDecoder.replaceAudioUnit(bytes, audioUnitBox, {
@@ -230,12 +229,9 @@ export class PresetService {
             })
             this.project.loadScriptDevices()
         } else {
-            console.debug("[PresetPager] apply → unhandled category", entry.category)
             return
         }
-        const identity = identityOf(entry)
-        this.#cursors.set(cursorKey, identity)
-        console.debug("[PresetPager] apply → cursor set", cursorKey, "→", identity)
+        this.#cursors.set(cursorKey, identityOf(entry))
     }
 
     #stepPreset(category: PresetCategory,
@@ -243,19 +239,7 @@ export class PresetService {
                 current: Option<PresetIdentity>,
                 delta: -1 | 1): Option<PresetEntry> {
         const list = this.presetsFor(category, deviceKey)
-        const cursorIdentity = current.unwrapOrNull()
-        console.debug("[PresetPager] step", {
-            delta,
-            category,
-            deviceKey,
-            cursor: cursorIdentity,
-            listSize: list.length,
-            list: list.map(entry => ({identity: identityOf(entry), name: entry.name}))
-        })
-        if (list.length === 0) {
-            console.debug("[PresetPager] step → no presets")
-            return Option.None
-        }
+        if (list.length === 0) {return Option.None}
         const currentIndex = current.match({
             none: () => -1,
             some: identity => list.findIndex(entry => identityOf(entry) === identity)
@@ -263,12 +247,8 @@ export class PresetService {
         // No cursor (or stale): both directions land on the first entry, so the
         // user ends up in a known position. From there the next press wraps —
         // prev → last, next → second — symmetric and predictable.
-        if (currentIndex < 0) {
-            console.debug("[PresetPager] step → cursor not in list, returning list[0]", list[0])
-            return Option.wrap(list[0])
-        }
+        if (currentIndex < 0) {return Option.wrap(list[0])}
         const next = (currentIndex + delta + list.length) % list.length
-        console.debug("[PresetPager] step → from index", currentIndex, "to", next, list[next])
         return Option.wrap(list[next])
     }
 

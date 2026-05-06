@@ -6,8 +6,13 @@ export namespace PresetApplication {
     export const loadBytes = (uuid: UUID.String, source: PresetSource): Promise<ArrayBuffer> => {
         if (source === "user") {return PresetStorage.load(UUID.parse(uuid))}
         const progress = new DefaultObservableValue(0.0)
-        const dialog = RuntimeNotifier.progress({headline: "Downloading Preset", progress})
-        return OpenPresetAPI.get().load(UUID.parse(uuid), value => progress.setValue(value))
+        const controller = new AbortController()
+        const dialog = RuntimeNotifier.progress({
+            headline: "Downloading Preset",
+            progress,
+            cancel: () => controller.abort()
+        })
+        return OpenPresetAPI.get().load(UUID.parse(uuid), value => progress.setValue(value), controller.signal)
             .finally(() => dialog.terminate())
     }
 
