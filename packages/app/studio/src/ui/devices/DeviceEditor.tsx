@@ -13,6 +13,7 @@ import {StringField} from "@opendaw/lib-box"
 import {Colors, IconSymbol} from "@opendaw/studio-enums"
 import {Promises} from "@opendaw/lib-runtime"
 import {Surface} from "@/ui/surface/Surface"
+import {PresetPager} from "@/ui/devices/PresetPager"
 
 const className = Html.adoptStyleSheet(css, "DeviceEditor")
 
@@ -141,6 +142,7 @@ export const DeviceEditor =
                             Events.subscribe(element, "click", () => editing.modify(() => enabledField.toggle()))
                         )}/>
                     {(createLabel ?? defaultLabelFactory(lifecycle, editing, labelField))()}
+                    <PresetPager lifecycle={lifecycle} onPresetNavigate={delta => console.debug(delta)}/>
                 </header>
                 <MenuButton root={MenuItem.root()
                     .setRuntimeChildrenProcedure(parent => {
