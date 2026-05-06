@@ -105,22 +105,15 @@ export class PresetService {
         return [...user, ...cloud]
     }
 
-    // Whether a preset entry should appear in the per-device pager for the
-    // given adapter category + device key. An instrument adapter pulls in both
-    // single-instrument presets *and* rack (audio-unit) presets that wrap an
-    // instrument with the same key — racks are activations on the same device
-    // slot, so excluding them would leave the pager skipping entries the user
-    // can see in the library.
-    #matchesDevice(entry: PresetEntry, category: PresetCategory, deviceKey: string): boolean {
-        if (deviceKeyOf(entry) !== deviceKey) {return false}
-        if (entry.category === category) {return true}
-        return category === "instrument" && entry.category === "audio-unit"
-    }
-
     // Presets matching a single device (category + device key), ordered for a stable pager.
+    // The per-device pager is strictly same-category: an instrument adapter
+    // walks instrument presets only, an effect adapter its own effect presets.
+    // Rack (audio-unit) presets and chain presets are out of scope here —
+    // applying one would replace the entire audio unit / chain, not just the
+    // currently-paged device.
     presetsFor(category: PresetCategory, deviceKey: string): ReadonlyArray<PresetEntry> {
         return this.presets()
-            .filter(entry => this.#matchesDevice(entry, category, deviceKey))
+            .filter(entry => entry.category === category && deviceKeyOf(entry) === deviceKey)
             .toSorted((a, b) => {
                 if (a.source !== b.source) {return a.source === "user" ? -1 : 1}
                 return a.name.localeCompare(b.name)
@@ -128,7 +121,7 @@ export class PresetService {
     }
 
     hasPresetsFor(category: PresetCategory, deviceKey: string): boolean {
-        return this.presets().some(entry => this.#matchesDevice(entry, category, deviceKey))
+        return this.presets().some(entry => entry.category === category && deviceKeyOf(entry) === deviceKey)
     }
 
     // Boolean signal for "does this device currently have any matching presets?".
