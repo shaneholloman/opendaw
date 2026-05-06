@@ -14,7 +14,7 @@ import {
 } from "@opendaw/lib-std"
 import {Promises} from "@opendaw/lib-runtime"
 import {Box, IndexedBox} from "@opendaw/lib-box"
-import {DeviceBoxUtils, Devices, InstrumentFactories, PresetDecoder, PresetEncoder, PresetHeader} from "@opendaw/studio-adapters"
+import {DeviceBoxAdapter, DeviceBoxUtils, Devices, EffectDeviceBoxAdapter, InstrumentFactories, PresetDecoder, PresetEncoder, PresetHeader} from "@opendaw/studio-adapters"
 import {
     AudioEffectChainPresetMeta,
     AudioEffectPresetMeta,
@@ -56,9 +56,29 @@ export const deviceKeyOf = (entry: PresetMeta): string => {
     }
 }
 
+// Per-device pager cursor key. Keyed by audio-unit UUID + device-slot rather
+// than the device-box UUID so the cursor survives in-place replacement
+// (replaceAudioUnit / delete + insertEffectChain assign new box UUIDs but
+// keep the same slot).
+const cursorKeyFor = (adapter: DeviceBoxAdapter): string => {
+    const audioUnit = adapter.deviceHost().audioUnitBoxAdapter().box
+    const auKey = UUID.toString(audioUnit.address.uuid)
+    if (Devices.isEffect(adapter)) {
+        return `${auKey}:${adapter.type}:${adapter.indexField.getValue()}`
+    }
+    return `${auKey}:${adapter.type}`
+}
+
+// Pager identity for an entry. UUID alone isn't unique — a user-saved preset
+// can share its UUID with the stock one it was downloaded from. Disambiguating
+// by source ensures findIndex lands on the actual entry we just applied.
+type PresetIdentity = string
+const identityOf = (entry: PresetEntry): PresetIdentity => `${entry.source}:${entry.uuid}`
+
 export class PresetService {
     readonly #cloudIndex = new DefaultObservableValue<ReadonlyArray<PresetMeta>>([])
     readonly #cloudReady: Promise<void>
+    readonly #cursors = new Map<string, PresetIdentity>()
 
     constructor(readonly service: StudioService) {
         PresetStorage.readIndex().catch(reason => console.warn("PresetStorage.readIndex failed", reason))
@@ -85,10 +105,22 @@ export class PresetService {
         return [...user, ...cloud]
     }
 
+    // Whether a preset entry should appear in the per-device pager for the
+    // given adapter category + device key. An instrument adapter pulls in both
+    // single-instrument presets *and* rack (audio-unit) presets that wrap an
+    // instrument with the same key — racks are activations on the same device
+    // slot, so excluding them would leave the pager skipping entries the user
+    // can see in the library.
+    #matchesDevice(entry: PresetEntry, category: PresetCategory, deviceKey: string): boolean {
+        if (deviceKeyOf(entry) !== deviceKey) {return false}
+        if (entry.category === category) {return true}
+        return category === "instrument" && entry.category === "audio-unit"
+    }
+
     // Presets matching a single device (category + device key), ordered for a stable pager.
     presetsFor(category: PresetCategory, deviceKey: string): ReadonlyArray<PresetEntry> {
         return this.presets()
-            .filter(entry => entry.category === category && deviceKeyOf(entry) === deviceKey)
+            .filter(entry => this.#matchesDevice(entry, category, deviceKey))
             .toSorted((a, b) => {
                 if (a.source !== b.source) {return a.source === "user" ? -1 : 1}
                 return a.name.localeCompare(b.name)
@@ -96,7 +128,7 @@ export class PresetService {
     }
 
     hasPresetsFor(category: PresetCategory, deviceKey: string): boolean {
-        return this.presets().some(entry => entry.category === category && deviceKeyOf(entry) === deviceKey)
+        return this.presets().some(entry => this.#matchesDevice(entry, category, deviceKey))
     }
 
     // Boolean signal for "does this device currently have any matching presets?".
@@ -117,29 +149,133 @@ export class PresetService {
     // Pager helpers. Wrap around at the ends so repeated clicks cycle the list.
     nextPresetFor(category: PresetCategory,
                   deviceKey: string,
-                  current: Option<UUID.String>): Option<PresetEntry> {
+                  current: Option<PresetIdentity>): Option<PresetEntry> {
         return this.#stepPreset(category, deviceKey, current, +1)
     }
 
     prevPresetFor(category: PresetCategory,
                   deviceKey: string,
-                  current: Option<UUID.String>): Option<PresetEntry> {
+                  current: Option<PresetIdentity>): Option<PresetEntry> {
         return this.#stepPreset(category, deviceKey, current, -1)
+    }
+
+    // Per-device pager cursor. Keyed by slot, not box UUID, so it survives
+    // in-place replacement. Value is `${source}:${uuid}` so a user preset and
+    // a stock preset that happen to share a UUID are tracked separately.
+    cursorFor(adapter: DeviceBoxAdapter): Option<PresetIdentity> {
+        const value = this.#cursors.get(cursorKeyFor(adapter))
+        return isDefined(value) ? Option.wrap(value) : Option.None
+    }
+
+    setCursor(adapter: DeviceBoxAdapter, entry: PresetEntry): void {
+        this.#cursors.set(cursorKeyFor(adapter), identityOf(entry))
+    }
+
+    // Apply a preset to a specific device — replaces in place and updates the
+    // cursor so subsequent next/prev clicks step from the newly-applied entry.
+    // For "instrument" entries, keeps existing effects + timeline; for
+    // "audio-unit" rack entries, replaces the whole audio unit. For effect
+    // entries, deletes the target effect and inserts the preset at the same
+    // index. Other categories are no-ops here (they never reach the pager).
+    async applyPresetTo(adapter: DeviceBoxAdapter, entry: PresetEntry): Promise<void> {
+        console.debug("[PresetPager] apply", {uuid: entry.uuid, name: entry.name, source: entry.source, category: entry.category})
+        const loaded = await Promises.tryCatch(PresetApplication.loadBytes(entry.uuid, entry.source))
+        if (loaded.status === "rejected") {
+            console.debug("[PresetPager] apply → load rejected", loaded.error)
+            await RuntimeNotifier.info({
+                headline: "Could Not Load Preset",
+                message: String(loaded.error)
+            })
+            return
+        }
+        const bytes = loaded.value
+        const audioUnitBox = adapter.deviceHost().audioUnitBoxAdapter().box
+        const cursorKey = cursorKeyFor(adapter)
+        console.debug("[PresetPager] apply → bytes loaded, cursorKey", cursorKey, "bytes", bytes.byteLength)
+        if (entry.category === "instrument") {
+            this.project.editing.modify(() => {
+                const attempt = PresetDecoder.replaceAudioUnit(bytes, audioUnitBox, {
+                    keepMIDIEffects: true,
+                    keepAudioEffects: true,
+                    keepTimeline: true
+                })
+                if (attempt.isFailure()) {
+                    RuntimeNotifier.info({
+                        headline: "Can't Apply Preset",
+                        message: attempt.failureReason()
+                    }).then()
+                }
+            })
+            this.project.loadScriptDevices()
+        } else if (entry.category === "audio-unit") {
+            this.project.editing.modify(() => {
+                const attempt = PresetDecoder.replaceAudioUnit(bytes, audioUnitBox)
+                if (attempt.isFailure()) {
+                    RuntimeNotifier.info({
+                        headline: "Can't Apply Preset",
+                        message: attempt.failureReason()
+                    }).then()
+                }
+            })
+            this.project.loadScriptDevices()
+        } else if (entry.category === "audio-effect" || entry.category === "midi-effect") {
+            if (!Devices.isEffect(adapter)) {return}
+            const effect = adapter as EffectDeviceBoxAdapter
+            const insertIndex = effect.indexField.getValue()
+            const chainKind = entry.category === "midi-effect"
+                ? PresetHeader.ChainKind.Midi
+                : PresetHeader.ChainKind.Audio
+            this.project.editing.modify(() => {
+                Devices.deleteEffectDevices([effect])
+                const attempt = PresetDecoder.insertEffectChain(bytes, audioUnitBox, insertIndex, chainKind)
+                if (attempt.isFailure()) {
+                    RuntimeNotifier.info({
+                        headline: "Can't Apply Preset",
+                        message: attempt.failureReason()
+                    }).then()
+                }
+            })
+            this.project.loadScriptDevices()
+        } else {
+            console.debug("[PresetPager] apply → unhandled category", entry.category)
+            return
+        }
+        const identity = identityOf(entry)
+        this.#cursors.set(cursorKey, identity)
+        console.debug("[PresetPager] apply → cursor set", cursorKey, "→", identity)
     }
 
     #stepPreset(category: PresetCategory,
                 deviceKey: string,
-                current: Option<UUID.String>,
+                current: Option<PresetIdentity>,
                 delta: -1 | 1): Option<PresetEntry> {
         const list = this.presetsFor(category, deviceKey)
-        if (list.length === 0) {return Option.None}
+        const cursorIdentity = current.unwrapOrNull()
+        console.debug("[PresetPager] step", {
+            delta,
+            category,
+            deviceKey,
+            cursor: cursorIdentity,
+            listSize: list.length,
+            list: list.map(entry => ({identity: identityOf(entry), name: entry.name}))
+        })
+        if (list.length === 0) {
+            console.debug("[PresetPager] step → no presets")
+            return Option.None
+        }
         const currentIndex = current.match({
             none: () => -1,
-            some: uuid => list.findIndex(entry => entry.uuid === uuid)
+            some: identity => list.findIndex(entry => identityOf(entry) === identity)
         })
-        const next = currentIndex < 0
-            ? (delta > 0 ? 0 : list.length - 1)
-            : (currentIndex + delta + list.length) % list.length
+        // No cursor (or stale): both directions land on the first entry, so the
+        // user ends up in a known position. From there the next press wraps —
+        // prev → last, next → second — symmetric and predictable.
+        if (currentIndex < 0) {
+            console.debug("[PresetPager] step → cursor not in list, returning list[0]", list[0])
+            return Option.wrap(list[0])
+        }
+        const next = (currentIndex + delta + list.length) % list.length
+        console.debug("[PresetPager] step → from index", currentIndex, "to", next, list[next])
         return Option.wrap(list[next])
     }
 
