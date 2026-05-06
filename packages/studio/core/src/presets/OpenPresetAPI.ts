@@ -62,7 +62,7 @@ export class OpenPresetAPI {
                 } else {
                     chunks.push(value)
                     loaded += value.length
-                    progress(total > 0 ? loaded / total : 0)
+                    progress(total > 0.0 ? loaded / total : 0.5)
                     reader.read().then(nextChunk, reason => {cleanup(); reject(reason)})
                 }
             }
