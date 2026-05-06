@@ -15,15 +15,13 @@ import {InstrumentFactories, PresetHeader} from "@opendaw/studio-adapters"
 import {
     EffectFactories,
     EffectFactory,
-    OpenPresetAPI,
     PresetEntry,
     PresetMeta,
-    PresetSource,
-    PresetStorage
+    PresetSource
 } from "@opendaw/studio-core"
 import {Colors, IconSymbol} from "@opendaw/studio-enums"
 import {StudioService} from "@/service/StudioService.ts"
-import {LibraryActions, LibraryCategoryKey} from "@/ui/browse/LibraryActions"
+import {deviceKeyOf, PresetCategoryKey, PresetService} from "@/ui/browse/PresetService"
 import {DeviceDropKind, DeviceItem, StockDeviceMeta} from "@/ui/browse/DeviceItem"
 import {CompoundItem} from "@/ui/browse/CompoundItem"
 import {Checkbox} from "../components/Checkbox"
@@ -36,31 +34,11 @@ const className = Html.adoptStyleSheet(css, "PresetBrowser")
 const tagSource = (list: ReadonlyArray<PresetMeta>, source: PresetSource): ReadonlyArray<PresetEntry> =>
     list.map(meta => ({...meta, source}))
 
-const deviceKeyOf = (entry: PresetMeta): string => {
-    switch (entry.category) {
-        case "instrument":
-        case "audio-effect":
-        case "midi-effect":
-            return entry.device
-        case "audio-unit":
-            return entry.instrument
-        case "audio-effect-chain":
-        case "midi-effect-chain":
-            return ""
-    }
-}
-
 const effectDevices = (records: Record<string, EffectFactory>): ReadonlyArray<StockDeviceMeta> =>
     Object.entries(records).map(([key, factory]) => ({
         key, name: factory.defaultName, icon: factory.defaultIcon, brief: factory.briefDescription,
         externalIconUrl: factory.external ? "/images/tone3000.svg" : undefined
     }))
-
-const userIndex = PresetStorage.observable()
-const cloudIndex = new DefaultObservableValue<ReadonlyArray<PresetMeta>>([])
-const cloudReady: Promise<void> = OpenPresetAPI.get().list().then(
-    value => {cloudIndex.setValue(value)},
-    reason => {console.warn("OpenPresetAPI.list failed", reason)})
 
 type Construct = {
     lifecycle: Lifecycle
@@ -68,7 +46,10 @@ type Construct = {
 }
 
 export const PresetBrowser = ({lifecycle, service}: Construct) => {
-    const actions = service.libraryActions
+    const presets = service.presets
+    const userIndex = presets.userIndex
+    const cloudIndex = presets.cloudIndex
+    const cloudReady = presets.cloudReady
     const expandedKeys = new Set<string>()
     const search = new DefaultObservableValue("")
     const showStock = new DefaultObservableValue(true)
@@ -93,7 +74,7 @@ export const PresetBrowser = ({lifecycle, service}: Construct) => {
         }
         tree.replaceChildren(
             renderCategory({
-                actions, expandedKeys, allPresets, query, matches, filterActive, searching,
+                presetService: presets, expandedKeys, allPresets, query, matches, filterActive, searching,
                 label: "Instruments",
                 color: Colors.green,
                 categoryKey: "instrument",
@@ -105,7 +86,7 @@ export const PresetBrowser = ({lifecycle, service}: Construct) => {
                 }))
             }),
             renderCategory({
-                actions, expandedKeys, allPresets, query, matches, filterActive, searching,
+                presetService: presets, expandedKeys, allPresets, query, matches, filterActive, searching,
                 label: "Audio Effects",
                 color: Colors.blue,
                 categoryKey: "audio-effect",
@@ -114,7 +95,7 @@ export const PresetBrowser = ({lifecycle, service}: Construct) => {
                 stockDevices: effectDevices(EffectFactories.AudioNamed)
             }),
             renderCategory({
-                actions, expandedKeys, allPresets, query, matches, filterActive, searching,
+                presetService: presets, expandedKeys, allPresets, query, matches, filterActive, searching,
                 label: "MIDI Effects",
                 color: Colors.orange,
                 categoryKey: "midi-effect",
@@ -124,7 +105,6 @@ export const PresetBrowser = ({lifecycle, service}: Construct) => {
             })
         )
     }
-    PresetStorage.readIndex().catch(reason => console.warn("PresetStorage.readIndex failed", reason))
     const enforceAtLeastOne = (target: DefaultObservableValue<boolean>,
                                other: DefaultObservableValue<boolean>) => target.subscribe(() => {
         if (!target.getValue() && !other.getValue()) {target.setValue(true)}
@@ -170,7 +150,7 @@ export const PresetBrowser = ({lifecycle, service}: Construct) => {
 }
 
 type RenderCategoryArgs = {
-    actions: LibraryActions
+    presetService: PresetService
     expandedKeys: Set<string>
     allPresets: ReadonlyArray<PresetEntry>
     query: string
@@ -179,7 +159,7 @@ type RenderCategoryArgs = {
     searching: boolean
     label: string
     color: Color
-    categoryKey: LibraryCategoryKey
+    categoryKey: PresetCategoryKey
     compoundLabel: string
     compoundCategory: "audio-unit" | "audio-effect-chain" | "midi-effect-chain"
     stockDevices: ReadonlyArray<StockDeviceMeta>
@@ -187,7 +167,7 @@ type RenderCategoryArgs = {
 
 const renderCategory = (args: RenderCategoryArgs): HTMLElement => {
     const {
-        actions, expandedKeys, allPresets, query, matches, filterActive, searching,
+        presetService, expandedKeys, allPresets, query, matches, filterActive, searching,
         label, color, categoryKey, compoundLabel, compoundCategory, stockDevices
     } = args
     const section: HTMLElement = <section className="category" style={{"--color": color.toString()}}/>
@@ -205,7 +185,7 @@ const renderCategory = (args: RenderCategoryArgs): HTMLElement => {
         }
         const onDrop: Nullable<(effects: ReadonlyArray<IndexedBox>) => Promise<void>> =
             isDefined(dropKind) && device.presetless !== true
-                ? effects => actions.saveAsSingleEffectPreset(dropKind, device.key, effects[0])
+                ? effects => presetService.saveAsSingleEffectPreset(dropKind, device.key, effects[0])
                 : null
         const instrumentKey: Nullable<InstrumentFactories.Keys> = categoryKey === "instrument"
         && device.presetless !== true
@@ -214,9 +194,9 @@ const renderCategory = (args: RenderCategoryArgs): HTMLElement => {
             : null
         const deviceExpandKey = `device:${categoryKey}:${device.key}`
         section.appendChild(DeviceItem({
-            actions, expandedKeys, device, presets: devicePresets,
+            presetService, expandedKeys, device, presets: devicePresets,
             expandOnRender: searching && devicePresets.length > 0,
-            onCreate: () => actions.createDevice(categoryKey, device.key),
+            onCreate: () => presetService.createDevice(categoryKey, device.key),
             dropKind, onDrop, instrumentKey, expandKey: deviceExpandKey
         }))
     }
@@ -232,17 +212,17 @@ const renderCategory = (args: RenderCategoryArgs): HTMLElement => {
                 : null
         const onChainDrop: Nullable<(effects: ReadonlyArray<IndexedBox>) => Promise<void>> =
             isDefined(dropKind) && isDefined(chainKind)
-                ? effects => actions.saveAsChainPreset(chainKind, effects)
+                ? effects => presetService.saveAsChainPreset(chainKind, effects)
                 : null
         const onRackDrop = compoundCategory === "audio-unit"
             ? (instrumentUuid: UUID.String, effectUuids: ReadonlyArray<UUID.String>) =>
-                actions.handleRackDrop(instrumentUuid, effectUuids)
+                presetService.handleRackDrop(instrumentUuid, effectUuids)
             : null
         const compoundExpandKey = `compound:${categoryKey}:${compoundCategory}`
         const compoundIcon = compoundCategory === "audio-unit" ? IconSymbol.Cube : IconSymbol.Chain
         section.appendChild(<hr/>)
         section.appendChild(CompoundItem({
-            actions, expandedKeys, label: compoundLabel, icon: compoundIcon, presets: compoundPresets,
+            presetService, expandedKeys, label: compoundLabel, icon: compoundIcon, presets: compoundPresets,
             expandOnRender: searching && compoundPresets.length > 0,
             dropKind, onDrop: onChainDrop, onRackDrop, expandKey: compoundExpandKey
         }))

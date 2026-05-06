@@ -8,7 +8,7 @@ import {EffectFactories, PresetEntry} from "@opendaw/studio-core"
 import {IconSymbol} from "@opendaw/studio-enums"
 import {DragAndDrop} from "@/ui/DragAndDrop"
 import {AnyDragData, DragDevice} from "@/ui/AnyDragData"
-import {LibraryActions} from "@/ui/browse/LibraryActions"
+import {PresetService} from "@/ui/browse/PresetService"
 import {PresetItems} from "@/ui/browse/PresetItem"
 import {Icon} from "../components/Icon"
 
@@ -25,7 +25,7 @@ export type StockDeviceMeta = {
 export type DeviceDropKind = "audio-effect" | "midi-effect"
 
 type Construct = {
-    actions: LibraryActions
+    presetService: PresetService
     expandedKeys: Set<string>
     device: StockDeviceMeta
     presets: ReadonlyArray<PresetEntry>
@@ -38,7 +38,7 @@ type Construct = {
 }
 
 export const DeviceItem = ({
-                               actions, expandedKeys, device, presets, expandOnRender,
+                               presetService, expandedKeys, device, presets, expandOnRender,
                                onCreate, dropKind, onDrop, instrumentKey, expandKey
                            }: Construct): HTMLElement => {
     const empty = presets.length === 0
@@ -59,7 +59,7 @@ export const DeviceItem = ({
         </div>
     )
     const presetList: HTMLElement = <div className="preset-list hidden"/>
-    presetList.append(...PresetItems(presets, actions))
+    presetList.append(...PresetItems(presets, presetService))
     const shouldExpand = !empty && (expandedKeys.has(expandKey) || expandOnRender)
     if (shouldExpand) {
         presetList.classList.remove("hidden")
@@ -103,19 +103,19 @@ export const DeviceItem = ({
         DragAndDrop.installTarget(header, {
             drag: (_event, dragData) => {
                 if (acceptsEffect && !isRackIntentEffect(dragData)) {
-                    const effects = actions.resolveEffectBoxesFromDrag(dropKind, dragData)
+                    const effects = presetService.resolveEffectBoxesFromDrag(dropKind, dragData)
                     if (effects.length === 1 && effects[0].name.replace(/DeviceBox$/, "") === device.key) {
                         return true
                     }
                 }
                 if (acceptsInstrument && isBareInstrument(dragData)) {
-                    return actions.resolveDraggedInstrumentKey(dragData) === instrumentKey
+                    return presetService.resolveDraggedInstrumentKey(dragData) === instrumentKey
                 }
                 return false
             },
             drop: (_event, dragData) => {
                 if (acceptsEffect && !isRackIntentEffect(dragData)) {
-                    const effects = actions.resolveEffectBoxesFromDrag(dropKind, dragData)
+                    const effects = presetService.resolveEffectBoxesFromDrag(dropKind, dragData)
                     if (effects.length === 1 && effects[0].name.replace(/DeviceBox$/, "") === device.key) {
                         onDrop(effects).catch(console.warn)
                         header.classList.remove("accept-drop")
@@ -123,9 +123,9 @@ export const DeviceItem = ({
                     }
                 }
                 if (acceptsInstrument && isBareInstrument(dragData)
-                    && actions.resolveDraggedInstrumentKey(dragData) === instrumentKey
+                    && presetService.resolveDraggedInstrumentKey(dragData) === instrumentKey
                     && dragData.type === "instrument" && dragData.device === null) {
-                    actions.saveAsInstrumentPreset(instrumentKey, dragData.uuid).catch(console.warn)
+                    presetService.saveAsInstrumentPreset(instrumentKey, dragData.uuid).catch(console.warn)
                 }
                 header.classList.remove("accept-drop")
             },

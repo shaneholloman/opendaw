@@ -1,4 +1,17 @@
-import {Errors, isAbsent, isDefined, isNull, Nullable, panic, RuntimeNotifier, UUID} from "@opendaw/lib-std"
+import {
+    DefaultObservableValue,
+    Errors,
+    isAbsent,
+    isDefined,
+    isNull,
+    Lifecycle,
+    Nullable,
+    ObservableValue,
+    Option,
+    panic,
+    RuntimeNotifier,
+    UUID
+} from "@opendaw/lib-std"
 import {Promises} from "@opendaw/lib-runtime"
 import {Box, IndexedBox} from "@opendaw/lib-box"
 import {DeviceBoxUtils, Devices, InstrumentFactories, PresetDecoder, PresetEncoder, PresetHeader} from "@opendaw/studio-adapters"
@@ -10,7 +23,9 @@ import {
     MidiEffectChainPresetMeta,
     MidiEffectPresetMeta,
     OpenPresetAPI,
+    PresetCategory,
     PresetEntry,
+    PresetMeta,
     PresetStorage,
     Project,
     RackPresetMeta
@@ -22,20 +37,118 @@ import {PresetDialogs} from "@/ui/browse/PresetDialogs"
 import {PresetApplication} from "@/ui/browse/PresetApplication"
 import type {StudioService} from "@/service/StudioService"
 
-export type LibraryCategoryKey = "instrument" | "audio-effect" | "midi-effect"
-export type LibraryEffectKind = "audio-effect" | "midi-effect"
+export type PresetCategoryKey = "instrument" | "audio-effect" | "midi-effect"
+export type PresetEffectKind = "audio-effect" | "midi-effect"
 
-export class LibraryActions {
-    constructor(readonly service: StudioService) {}
+// Returns the device key a preset entry resolves to in the per-device pager
+// (e.g. "Vaporisateur", "Delay"). Chain presets carry no device key.
+export const deviceKeyOf = (entry: PresetMeta): string => {
+    switch (entry.category) {
+        case "instrument":
+        case "audio-effect":
+        case "midi-effect":
+            return entry.device
+        case "audio-unit":
+            return entry.instrument
+        case "audio-effect-chain":
+        case "midi-effect-chain":
+            return ""
+    }
+}
+
+export class PresetService {
+    readonly #cloudIndex = new DefaultObservableValue<ReadonlyArray<PresetMeta>>([])
+    readonly #cloudReady: Promise<void>
+
+    constructor(readonly service: StudioService) {
+        PresetStorage.readIndex().catch(reason => console.warn("PresetStorage.readIndex failed", reason))
+        this.#cloudReady = OpenPresetAPI.get().list().then(
+            value => {this.#cloudIndex.setValue(value)},
+            reason => {console.warn("OpenPresetAPI.list failed", reason)})
+    }
 
     get project(): Project {return this.service.project}
+
+    // Live observable of cloud presets (populated once OpenPresetAPI.list resolves).
+    get cloudIndex(): ObservableValue<ReadonlyArray<PresetMeta>> {return this.#cloudIndex}
+
+    // Live observable of user presets (delegates to PresetStorage's singleton).
+    get userIndex(): ObservableValue<ReadonlyArray<PresetMeta>> {return PresetStorage.observable()}
+
+    // Resolves once the cloud index has been fetched (or rejected).
+    get cloudReady(): Promise<void> {return this.#cloudReady}
+
+    // Merged user + cloud snapshot tagged with source.
+    presets(): ReadonlyArray<PresetEntry> {
+        const user = this.userIndex.getValue().map(meta => ({...meta, source: "user"} as PresetEntry))
+        const cloud = this.#cloudIndex.getValue().map(meta => ({...meta, source: "stock"} as PresetEntry))
+        return [...user, ...cloud]
+    }
+
+    // Presets matching a single device (category + device key), ordered for a stable pager.
+    presetsFor(category: PresetCategory, deviceKey: string): ReadonlyArray<PresetEntry> {
+        return this.presets()
+            .filter(entry => entry.category === category && deviceKeyOf(entry) === deviceKey)
+            .toSorted((a, b) => {
+                if (a.source !== b.source) {return a.source === "user" ? -1 : 1}
+                return a.name.localeCompare(b.name)
+            })
+    }
+
+    hasPresetsFor(category: PresetCategory, deviceKey: string): boolean {
+        return this.presets().some(entry => entry.category === category && deviceKeyOf(entry) === deviceKey)
+    }
+
+    // Boolean signal for "does this device currently have any matching presets?".
+    // Recomputes when either the user or cloud index changes; subscriptions are
+    // bound to the supplied lifecycle.
+    observePresetAvailability(category: PresetCategory,
+                              deviceKey: string,
+                              lifecycle: Lifecycle): ObservableValue<boolean> {
+        const signal = new DefaultObservableValue(this.hasPresetsFor(category, deviceKey))
+        const update = () => signal.setValue(this.hasPresetsFor(category, deviceKey))
+        lifecycle.ownAll(
+            this.userIndex.subscribe(update),
+            this.#cloudIndex.subscribe(update)
+        )
+        return signal
+    }
+
+    // Pager helpers. Wrap around at the ends so repeated clicks cycle the list.
+    nextPresetFor(category: PresetCategory,
+                  deviceKey: string,
+                  current: Option<UUID.String>): Option<PresetEntry> {
+        return this.#stepPreset(category, deviceKey, current, +1)
+    }
+
+    prevPresetFor(category: PresetCategory,
+                  deviceKey: string,
+                  current: Option<UUID.String>): Option<PresetEntry> {
+        return this.#stepPreset(category, deviceKey, current, -1)
+    }
+
+    #stepPreset(category: PresetCategory,
+                deviceKey: string,
+                current: Option<UUID.String>,
+                delta: -1 | 1): Option<PresetEntry> {
+        const list = this.presetsFor(category, deviceKey)
+        if (list.length === 0) {return Option.None}
+        const currentIndex = current.match({
+            none: () => -1,
+            some: uuid => list.findIndex(entry => entry.uuid === uuid)
+        })
+        const next = currentIndex < 0
+            ? (delta > 0 ? 0 : list.length - 1)
+            : (currentIndex + delta + list.length) % list.length
+        return Option.wrap(list[next])
+    }
 
     createInstrument(key: InstrumentFactories.Keys): void {
         const factory = InstrumentFactories.Named[key]
         this.project.editing.modify(() => DefaultInstrumentFactory.create(this.project.api, factory))
     }
 
-    createEffect(kind: LibraryEffectKind, key: string): void {
+    createEffect(kind: PresetEffectKind, key: string): void {
         const factory = EffectFactories.MergedNamed[key as keyof typeof EffectFactories.MergedNamed]
         const audioUnitOption = this.project.userEditingManager.audioUnit.get()
         if (audioUnitOption.isEmpty()) {
@@ -63,7 +176,7 @@ export class LibraryActions {
         })
     }
 
-    createDevice(category: LibraryCategoryKey, deviceKey: string): void {
+    createDevice(category: PresetCategoryKey, deviceKey: string): void {
         if (category === "instrument") {
             this.createInstrument(deviceKey as InstrumentFactories.Keys)
         } else {
@@ -71,7 +184,7 @@ export class LibraryActions {
         }
     }
 
-    resolveEffectBoxesFromDrag(kind: LibraryEffectKind, dragData: AnyDragData): ReadonlyArray<IndexedBox> {
+    resolveEffectBoxesFromDrag(kind: PresetEffectKind, dragData: AnyDragData): ReadonlyArray<IndexedBox> {
         if (dragData.type !== kind) {return []}
         if (isNull(dragData.uuids)) {return []}
         return dragData.uuids
@@ -99,7 +212,7 @@ export class LibraryActions {
         return value.length > 0 ? value : this.#effectKeyFromBox(box)
     }
 
-    async saveAsSingleEffectPreset(category: LibraryEffectKind,
+    async saveAsSingleEffectPreset(category: PresetEffectKind,
                                    deviceKey: string,
                                    effect: IndexedBox): Promise<void> {
         const dialog = await Promises.tryCatch(PresetDialogs.showSavePresetDialog({

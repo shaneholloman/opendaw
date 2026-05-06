@@ -6,7 +6,7 @@ import {MenuItem, PresetEntry} from "@opendaw/studio-core"
 import {IconSymbol} from "@opendaw/studio-enums"
 import {DragAndDrop} from "@/ui/DragAndDrop"
 import {DragPreset} from "@/ui/AnyDragData"
-import {LibraryActions} from "@/ui/browse/LibraryActions"
+import {PresetService} from "@/ui/browse/PresetService"
 import {Icon} from "../components/Icon"
 import {MenuButton} from "@/ui/components/MenuButton"
 
@@ -14,20 +14,20 @@ const className = Html.adoptStyleSheet(css, "PresetItem")
 
 type Construct = {
     entry: PresetEntry
-    actions: LibraryActions
+    presetService: PresetService
 }
 
-export const PresetItem = ({entry, actions}: Construct): HTMLElement => {
+export const PresetItem = ({entry, presetService}: Construct): HTMLElement => {
     const userMenuRoot: Nullable<MenuItem> = entry.source === "user"
         ? MenuItem.root().setRuntimeChildrenProcedure(parent => {
             const canUpload = new URLSearchParams(location.search).has("access-key")
             parent.addMenuItem(
                 MenuItem.default({label: "Edit…"})
-                    .setTriggerProcedure(() => actions.editPreset(entry).catch(console.warn)),
+                    .setTriggerProcedure(() => presetService.editPreset(entry).catch(console.warn)),
                 ...(canUpload ? [MenuItem.default({label: "Upload"})
-                    .setTriggerProcedure(() => actions.uploadPreset(entry).catch(console.warn))] : []),
+                    .setTriggerProcedure(() => presetService.uploadPreset(entry).catch(console.warn))] : []),
                 MenuItem.default({label: "Delete"})
-                    .setTriggerProcedure(() => actions.deletePreset(entry).catch(console.warn))
+                    .setTriggerProcedure(() => presetService.deletePreset(entry).catch(console.warn))
             )
         })
         : null
@@ -55,7 +55,7 @@ export const PresetItem = ({entry, actions}: Construct): HTMLElement => {
             </div>
         </div>
     )
-    item.onclick = () => actions.activatePreset(entry)
+    item.onclick = () => presetService.activatePreset(entry)
     DragAndDrop.installSource(item, () => ({
         type: "preset",
         category: entry.category,
@@ -65,10 +65,10 @@ export const PresetItem = ({entry, actions}: Construct): HTMLElement => {
     } satisfies DragPreset))
     if (entry.source === "user") {
         DragAndDrop.installTarget(item, {
-            drag: (_event, dragData) => actions.canReplacePreset(entry, dragData),
+            drag: (_event, dragData) => presetService.canReplacePreset(entry, dragData),
             drop: (_event, dragData) => {
-                if (actions.canReplacePreset(entry, dragData)) {
-                    actions.replacePreset(entry, dragData).catch(console.warn)
+                if (presetService.canReplacePreset(entry, dragData)) {
+                    presetService.replacePreset(entry, dragData).catch(console.warn)
                 }
                 item.classList.remove("accept-drop")
             },
@@ -79,10 +79,10 @@ export const PresetItem = ({entry, actions}: Construct): HTMLElement => {
     return item
 }
 
-export const PresetItems = (presets: ReadonlyArray<PresetEntry>, actions: LibraryActions): ReadonlyArray<HTMLElement> => {
+export const PresetItems = (presets: ReadonlyArray<PresetEntry>, presetService: PresetService): ReadonlyArray<HTMLElement> => {
     const byName = (left: PresetEntry, right: PresetEntry) =>
         StringComparator(left.name.toLowerCase(), right.name.toLowerCase())
     const user = presets.filter(entry => entry.source === "user").toSorted(byName)
     const stock = presets.filter(entry => entry.source === "stock").toSorted(byName)
-    return [...user, ...stock].map(entry => PresetItem({entry, actions}))
+    return [...user, ...stock].map(entry => PresetItem({entry, presetService}))
 }

@@ -337,7 +337,7 @@ export const ScriptDeviceEditor = ({lifecycle, service, adapter, deviceHost, con
     scheduleRebuild()
     return (
         <DeviceEditor lifecycle={lifecycle}
-                      project={project}
+                      service={service}
                       adapter={adapter}
                       populateMenu={parent => config.populateMenu(parent, service, deviceHost, adapter)}
                       populateControls={() => controlsContainer}

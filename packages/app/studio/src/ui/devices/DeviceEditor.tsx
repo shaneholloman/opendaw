@@ -3,8 +3,9 @@ import {Editing, Errors, Lifecycle, ObservableValue, Option, panic, Procedure, P
 import {createElement, Group, JsxValue} from "@opendaw/lib-jsx"
 import {Icon} from "@/ui/components/Icon.tsx"
 import {MenuButton} from "@/ui/components/MenuButton.tsx"
-import {ClipboardManager, DevicesClipboard, MenuItem, Project} from "@opendaw/studio-core"
+import {ClipboardManager, DevicesClipboard, MenuItem} from "@opendaw/studio-core"
 import {DeviceBoxAdapter, DeviceHost, Devices, DeviceType} from "@opendaw/studio-adapters"
+import {StudioService} from "@/service/StudioService"
 import {DebugMenus} from "@/ui/menu/debug.ts"
 import {DeviceDragging} from "@/ui/devices/DeviceDragging"
 import {Events, Html} from "@opendaw/lib-dom"
@@ -31,7 +32,7 @@ const getColorFor = (type: DeviceType) => {
 
 type Construct = {
     lifecycle: Lifecycle
-    project: Project
+    service: StudioService
     adapter: DeviceBoxAdapter
     populateMenu: Procedure<MenuItem>
     populateControls: Provider<JsxValue>
@@ -62,12 +63,17 @@ const defaultLabelFactory = (lifecycle: Lifecycle, editing: Editing, labelField:
 
 export const DeviceEditor =
     ({
-         lifecycle, project, adapter, populateMenu, populateControls, populateMeter,
+         lifecycle, service, adapter, populateMenu, populateControls, populateMeter,
          createLabel, icon, className: customClassName
      }: Construct) => {
+        const {project} = service
         const {editing} = project
         const {box, type, enabledField, minimizedField, labelField} = adapter
         const color = getColorFor(type)
+        const deviceKey = box.name.replace(/DeviceBox$/, "")
+        const presetCategory = type === "instrument" || type === "audio-effect" || type === "midi-effect"
+            ? type
+            : null
         return (
             <div className={Html.buildClassList(className, customClassName)}
                  onInit={element => {
@@ -142,7 +148,12 @@ export const DeviceEditor =
                             Events.subscribe(element, "click", () => editing.modify(() => enabledField.toggle()))
                         )}/>
                     {(createLabel ?? defaultLabelFactory(lifecycle, editing, labelField))()}
-                    <PresetPager lifecycle={lifecycle} onPresetNavigate={delta => console.debug(delta)}/>
+                    {presetCategory !== null && (
+                        <PresetPager lifecycle={lifecycle}
+                                     visible={service.presets.observePresetAvailability(
+                                         presetCategory, deviceKey, lifecycle)}
+                                     onPresetNavigate={delta => console.debug(delta)}/>
+                    )}
                 </header>
                 <MenuButton root={MenuItem.root()
                     .setRuntimeChildrenProcedure(parent => {

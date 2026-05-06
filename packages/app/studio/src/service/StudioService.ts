@@ -65,7 +65,7 @@ import {
     TimelineRange
 } from "@opendaw/studio-core"
 import {ProjectDialogs} from "@/project/ProjectDialogs"
-import {LibraryActions} from "@/ui/browse/LibraryActions"
+import {PresetService} from "@/ui/browse/PresetService"
 import {AudioFileBox, AudioUnitBox} from "@opendaw/studio-boxes"
 import {AudioUnitType} from "@opendaw/studio-enums"
 import {Surface} from "@/ui/surface/Surface"
@@ -112,7 +112,7 @@ export class StudioService implements ProjectEnv {
     readonly samplePlayback: SamplePlayback
     readonly recovery = new Recovery(() => this.#projectProfileService.getValue(), this)
     readonly engine = new EngineFacade()
-    readonly libraryActions = new LibraryActions(this)
+    readonly presets = new PresetService(this)
 
     readonly #softwareKeyboardLifeCycle = new Terminator()
     readonly #signals = new Notifier<StudioSignal>()

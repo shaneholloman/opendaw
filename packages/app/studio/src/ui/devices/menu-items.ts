@@ -5,7 +5,7 @@ import {Editing, isDefined, panic, RuntimeNotifier, UUID} from "@opendaw/lib-std
 import {Promises} from "@opendaw/lib-runtime"
 import {StudioService} from "@/service/StudioService"
 import {RouteLocation} from "@opendaw/lib-jsx"
-import {LibraryActions, LibraryEffectKind} from "@/ui/browse/LibraryActions"
+import {PresetService, PresetEffectKind} from "@/ui/browse/PresetService"
 
 export namespace MenuItems {
     export const forAudioUnitInput = (parent: MenuItem, service: StudioService, deviceHost: DeviceHost): void => {
@@ -94,7 +94,7 @@ export namespace MenuItems {
 
     const sameKindEffectsInHost = (service: StudioService,
                                    host: DeviceHost,
-                                   kind: LibraryEffectKind): ReadonlyArray<EffectDeviceBoxAdapter> =>
+                                   kind: PresetEffectKind): ReadonlyArray<EffectDeviceBoxAdapter> =>
         service.project.deviceSelection.selected()
             .filter((entry): entry is EffectDeviceBoxAdapter =>
                 entry.type === kind && entry.deviceHost() === host)
@@ -102,7 +102,7 @@ export namespace MenuItems {
 
     const allEffectsInHost = (service: StudioService,
                               host: DeviceHost,
-                              kind: LibraryEffectKind): ReadonlyArray<EffectDeviceBoxAdapter> => {
+                              kind: PresetEffectKind): ReadonlyArray<EffectDeviceBoxAdapter> => {
         const field = kind === "audio-effect" ? host.audioEffects.field() : host.midiEffects.field()
         return field.pointerHub.incoming()
             .map(({box}) => service.project.boxAdapters.adapterFor(box, Devices.isAny))
@@ -111,8 +111,8 @@ export namespace MenuItems {
             .toSorted((a, b) => a.indexField.getValue() - b.indexField.getValue())
     }
 
-    const saveSingleOrChain = async (actions: LibraryActions,
-                                     kind: LibraryEffectKind,
+    const saveSingleOrChain = async (actions: PresetService,
+                                     kind: PresetEffectKind,
                                      chainKind: PresetHeader.ChainKind,
                                      kindLabel: string,
                                      effect: EffectDeviceBoxAdapter): Promise<void> => {
@@ -137,7 +137,7 @@ export namespace MenuItems {
                                    service: StudioService,
                                    host: DeviceHost,
                                    context: PresetContext): void => {
-        const libraryActions = service.libraryActions
+        const presets = service.presets
         const instrumentTarget = resolveInstrumentTarget(host)
         parent.addMenuItem(
             MenuItem.default({label: "Preset", separatorBefore: true})
@@ -146,26 +146,26 @@ export namespace MenuItems {
                         const labeled = host.inputAdapter.mapOr(input => input.labelField.getValue(), "")
                         const deviceName = labeled.length > 0 ? labeled : instrumentTarget.key
                         submenu.addMenuItem(MenuItem.default({label: `Save '${deviceName}' as Preset`})
-                            .setTriggerProcedure(() => libraryActions.saveAsInstrumentPreset(
+                            .setTriggerProcedure(() => presets.saveAsInstrumentPreset(
                                 instrumentTarget.key, instrumentTarget.uuid, {excludeEffects: true})
                                 .catch(console.warn)))
                     } else if (context.kind === "effect-context") {
-                        const effectKind: LibraryEffectKind = context.device.type === "audio-effect"
+                        const effectKind: PresetEffectKind = context.device.type === "audio-effect"
                             ? "audio-effect" : "midi-effect"
                         const deviceKey = context.device.box.name.replace(/DeviceBox$/, "")
                         const effectBox = context.device.box as IndexedBox
                         const labeled = context.device.labelField.getValue()
                         const deviceName = labeled.length > 0 ? labeled : deviceKey
                         submenu.addMenuItem(MenuItem.default({label: `Save '${deviceName}' as Preset`})
-                            .setTriggerProcedure(() => libraryActions.saveAsSingleEffectPreset(
+                            .setTriggerProcedure(() => presets.saveAsSingleEffectPreset(
                                 effectKind, deviceKey, effectBox).catch(console.warn)))
                     }
                     if (isDefined(instrumentTarget)) {
                         submenu.addMenuItem(MenuItem.default({label: "Save Entire Audio-Unit Chain"})
-                            .setTriggerProcedure(() => libraryActions.saveAsRackPreset(instrumentTarget.uuid, [])
+                            .setTriggerProcedure(() => presets.saveAsRackPreset(instrumentTarget.uuid, [])
                                 .catch(console.warn)))
                     }
-                    const chainKindCandidates: ReadonlyArray<LibraryEffectKind> = context.kind === "effect-context"
+                    const chainKindCandidates: ReadonlyArray<PresetEffectKind> = context.kind === "effect-context"
                         ? [context.device.type === "audio-effect" ? "audio-effect" : "midi-effect"]
                         : ["audio-effect", "midi-effect"]
                     for (const kind of chainKindCandidates) {
@@ -180,7 +180,7 @@ export namespace MenuItems {
                                 ? `Save ${kindLabel} Effect Chain (${effects.length})`
                                 : `Save ${kindLabel} Effect Chain`
                             submenu.addMenuItem(MenuItem.default({label, selectable})
-                                .setTriggerProcedure(() => libraryActions.saveAsChainPreset(
+                                .setTriggerProcedure(() => presets.saveAsChainPreset(
                                     chainKind, effects.map(adapter => adapter.box as IndexedBox))
                                     .catch(console.warn)))
                         } else {
@@ -192,10 +192,10 @@ export namespace MenuItems {
                             submenu.addMenuItem(MenuItem.default({label, selectable})
                                 .setTriggerProcedure(() => {
                                     if (effects.length === 1) {
-                                        saveSingleOrChain(libraryActions, kind, chainKind, kindLabel, effects[0])
+                                        saveSingleOrChain(presets, kind, chainKind, kindLabel, effects[0])
                                             .catch(console.warn)
                                     } else {
-                                        libraryActions.saveAsChainPreset(chainKind,
+                                        presets.saveAsChainPreset(chainKind,
                                             effects.map(adapter => adapter.box as IndexedBox))
                                             .catch(console.warn)
                                     }

@@ -7,7 +7,7 @@ import {PresetEntry} from "@opendaw/studio-core"
 import {IconSymbol} from "@opendaw/studio-enums"
 import {AnyDragData} from "@/ui/AnyDragData"
 import {DragAndDrop} from "@/ui/DragAndDrop"
-import {LibraryActions} from "@/ui/browse/LibraryActions"
+import {PresetService} from "@/ui/browse/PresetService"
 import {DeviceDropKind} from "@/ui/browse/DeviceItem"
 import {PresetItems} from "@/ui/browse/PresetItem"
 import {Icon} from "../components/Icon"
@@ -34,7 +34,7 @@ const isRackIntentEffect = (dragData: AnyDragData): boolean =>
     && isDefined(dragData.instrument)
 
 type Construct = {
-    actions: LibraryActions
+    presetService: PresetService
     expandedKeys: Set<string>
     label: string
     icon: IconSymbol
@@ -47,7 +47,7 @@ type Construct = {
 }
 
 export const CompoundItem = ({
-                                 actions, expandedKeys, label, icon, presets, expandOnRender,
+                                 presetService, expandedKeys, label, icon, presets, expandOnRender,
                                  dropKind, onDrop, onRackDrop, expandKey
                              }: Construct): HTMLElement => {
     const empty = presets.length === 0
@@ -63,7 +63,7 @@ export const CompoundItem = ({
         </div>
     )
     const presetList: HTMLElement = <div className="preset-list hidden"/>
-    presetList.append(...PresetItems(presets, actions))
+    presetList.append(...PresetItems(presets, presetService))
     const shouldExpand = !empty && (expandedKeys.has(expandKey) || expandOnRender)
     if (shouldExpand) {
         presetList.classList.remove("hidden")
@@ -82,14 +82,14 @@ export const CompoundItem = ({
         DragAndDrop.installTarget(header, {
             drag: (_event, dragData) => {
                 if (acceptsEffectChain && !isRackIntentEffect(dragData)) {
-                    if (actions.resolveEffectBoxesFromDrag(dropKind, dragData).length > 0) {return true}
+                    if (presetService.resolveEffectBoxesFromDrag(dropKind, dragData).length > 0) {return true}
                 }
                 if (acceptsRack && isDefined(rackPayload(dragData))) {return true}
                 return false
             },
             drop: (_event, dragData) => {
                 if (acceptsEffectChain && !isRackIntentEffect(dragData)) {
-                    const effects = actions.resolveEffectBoxesFromDrag(dropKind, dragData)
+                    const effects = presetService.resolveEffectBoxesFromDrag(dropKind, dragData)
                     if (effects.length > 0) {
                         onDrop(effects).catch(console.warn)
                         header.classList.remove("accept-drop")
