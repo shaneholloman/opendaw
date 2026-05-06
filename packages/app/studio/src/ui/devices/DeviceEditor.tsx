@@ -164,19 +164,11 @@ export const DeviceEditor =
                                          presetCategory, deviceKey, lifecycle)}
                                      onPresetNavigate={delta => {
                                          const cursor = service.presets.cursorFor(adapter)
-                                         console.debug("[PresetPager] click", {
-                                             delta,
-                                             deviceKey,
-                                             presetCategory,
-                                             cursor: cursor.unwrapOrNull()
-                                         })
                                          const stepped = delta < 0
                                              ? service.presets.prevPresetFor(presetCategory, deviceKey, cursor)
                                              : service.presets.nextPresetFor(presetCategory, deviceKey, cursor)
-                                         stepped.match({
-                                             none: () => console.debug("[PresetPager] click → no entry to apply"),
-                                             some: entry => service.presets.applyPresetTo(adapter, entry).catch(console.warn)
-                                         })
+                                         stepped.ifSome(entry =>
+                                             service.presets.applyPresetTo(adapter, entry).catch(console.warn))
                                      }}/>
                     )}
                 </header>
