@@ -9,9 +9,18 @@ design.
 
 ## Quick start
 
+Once at app boot, plug in the OPFS provider:
+
 ```ts
 import {Inference} from "@opendaw/lib-inference"
+import {Workers} from "@opendaw/studio-core"
 
+Inference.install({opfs: Workers.Opfs})
+```
+
+Then anywhere in the studio:
+
+```ts
 const stems = await Inference.run("stem-separation",
     {audio: float32Channel, sampleRate: 44100},
     {progress: (value) => console.log(`progress: ${(value * 100).toFixed(0)}%`)})

@@ -1,6 +1,7 @@
 import {Procedure, Terminable, unitValue} from "@opendaw/lib-std"
 import {ExecutionProvider} from "./Task"
 import {TaskInput, TaskKey, TaskOutput} from "./registry"
+import {InferenceConfig, installInferenceConfig} from "./InferenceConfig"
 
 export interface RunOptions {
     readonly progress?: Procedure<unitValue>
@@ -13,6 +14,8 @@ export interface TaskHandle<K extends TaskKey> extends Terminable {
 }
 
 export namespace Inference {
+    export const install = (config: InferenceConfig): void => installInferenceConfig(config)
+
     export const run = <K extends TaskKey>(
         _task: K,
         _input: TaskInput<K>,
