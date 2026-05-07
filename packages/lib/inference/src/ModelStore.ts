@@ -77,7 +77,13 @@ export namespace ModelStore {
     }
 
     const download = async (model: ModelDescriptor, options?: FetchOptions): Promise<Uint8Array> => {
-        const response = await fetch(model.url, {signal: options?.signal})
+        // Cross-origin fetches under COOP+COEP need explicit cors/no-credentials
+        // mode so the response is treated as a permitted resource.
+        const response = await fetch(model.url, {
+            signal: options?.signal,
+            mode: "cors",
+            credentials: "omit"
+        })
         if (!response.ok) {
             return panic(`Model fetch failed: ${response.status} ${response.statusText} (${model.url})`)
         }
