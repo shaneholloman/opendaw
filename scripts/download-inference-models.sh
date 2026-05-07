@@ -49,7 +49,7 @@ print_sha() {
 # License: MIT (facebookresearch/demucs)
 # ---------------------------------------------------------------------------
 HTDEMUCS_DEST="${MODELS_DIR}/htdemucs/v4/model.onnx"
-HTDEMUCS_URL="${HTDEMUCS_URL:-https://huggingface.co/ModernMube/HTDemucs_onnx/resolve/edd8347a8191d6b73635675688d01e125d3ae336/htdemucs.onnx}"
+HTDEMUCS_URL="${HTDEMUCS_URL:-https://huggingface.co/smank/htdemucs-onnx/resolve/469b019bf7ac20e03dc68a8fa791323434862390/htdemucs.onnx}"
 
 # ---------------------------------------------------------------------------
 # Pitch estimation: CREPE tiny (monophonic pitch contour)

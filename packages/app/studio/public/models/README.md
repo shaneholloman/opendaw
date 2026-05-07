@@ -34,13 +34,16 @@ is a one-config-line change in the task definition.
 
 ### htdemucs / v4 — stem separation
 
-- **Upstream**: [`ModernMube/HTDemucs_onnx`](https://huggingface.co/ModernMube/HTDemucs_onnx)
+- **Upstream**: [`smank/htdemucs-onnx`](https://huggingface.co/smank/htdemucs-onnx)
 - **File**: `htdemucs.onnx`
-- **Pinned commit**: `edd8347a8191d6b73635675688d01e125d3ae336`
+- **Pinned commit**: `469b019bf7ac20e03dc68a8fa791323434862390`
 - **Original model**: [facebookresearch/demucs](https://github.com/facebookresearch/demucs) v4 hybrid transformer
 - **License**: MIT
-- **Size**: 174,490,597 bytes
-- **SHA-256**: `ac056d976fbcf300dbc9e5ae6c1e7c8e7eb9a0ee9000e0449d993e3edef797d6`
+- **Size**: 304,321,552 bytes
+- **SHA-256**: `d2b401f322558cd57d67a752ed7be3fa55178a0626011eda8ac7bb74e17280c0`
+- **Note**: an earlier candidate (`ModernMube/HTDemucs_onnx`, 174 MB) was rejected
+  by ORT-Web's strict shape validator. Verified working via `/spike-test`
+  on 2026-05-07.
 
 ### basic-pitch / v0.4.0 — audio-to-MIDI transcription
 
