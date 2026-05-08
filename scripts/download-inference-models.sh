@@ -1,23 +1,26 @@
 #!/usr/bin/env bash
 #
-# Optional: caches inference ONNX models locally for offline development.
-# The studio fetches directly from upstream Hugging Face at runtime and
-# does not require these files to be on disk. Run this only if you want
-# to inspect the models manually or work offline.
+# Populates the assets.opendaw.studio staging folder with inference ONNX
+# models, ready for upload to the production CDN.
 #
 # Output layout:
-#   packages/app/studio/public/models/<task>/<version>/model.onnx
+#   assets.opendaw.studio/models/<task>/<version>/model.onnx
 #
-# Local copies are gitignored. Cross-check the printed SHA-256 against
-# the task definitions in packages/lib/inference/src/tasks/ if you
-# suspect upstream drift.
+# The lib (`@opendaw/lib-inference`) and the studio runtime fetch from
+# https://assets.opendaw.studio/... so once these files have been
+# uploaded, the studio works without any further configuration.
+#
+# The local staging folder is gitignored. Re-run this script after a
+# fresh checkout, or whenever a task bumps its model version. SHA-256
+# digests printed at the end should match the corresponding
+# TaskDefinition.model.sha256 in packages/lib/inference/src/tasks/.
 #
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-MODELS_DIR="${REPO_ROOT}/packages/app/studio/public/models"
+STAGING_DIR="${REPO_ROOT}/assets.opendaw.studio/models"
 
-mkdir -p "${MODELS_DIR}"
+mkdir -p "${STAGING_DIR}"
 
 download_if_missing() {
     local url="$1"
@@ -46,27 +49,19 @@ print_sha() {
 
 # ---------------------------------------------------------------------------
 # Stem separation: htdemucs v4 (Demucs Hybrid Transformer, 4-stem split)
-# License: MIT (facebookresearch/demucs)
+# License: MIT (facebookresearch/demucs); ONNX export by smank/htdemucs-onnx.
 # ---------------------------------------------------------------------------
-HTDEMUCS_DEST="${MODELS_DIR}/htdemucs/v4/model.onnx"
+HTDEMUCS_DEST="${STAGING_DIR}/htdemucs/v4/model.onnx"
 HTDEMUCS_URL="${HTDEMUCS_URL:-https://huggingface.co/smank/htdemucs-onnx/resolve/469b019bf7ac20e03dc68a8fa791323434862390/htdemucs.onnx}"
 
 # ---------------------------------------------------------------------------
-# Pitch estimation: CREPE tiny (monophonic pitch contour)
-# License: MIT (marl/crepe)
-# ---------------------------------------------------------------------------
-# CREPE: no canonical ONNX export available at the time of writing.
-# Skipping for v1; export from marl/crepe yourself or wait for an upstream
-# ONNX release if pitch estimation is needed.
-
-# ---------------------------------------------------------------------------
 # Audio-to-MIDI: Spotify Basic Pitch (polyphonic transcription)
-# License: Apache-2.0 (spotify/basic-pitch)
+# License: Apache-2.0 (spotify/basic-pitch); ONNX via AEmotionStudio.
 # ---------------------------------------------------------------------------
-BASIC_PITCH_DEST="${MODELS_DIR}/basic-pitch/v0.4.0/model.onnx"
+BASIC_PITCH_DEST="${STAGING_DIR}/basic-pitch/v0.4.0/model.onnx"
 BASIC_PITCH_URL="${BASIC_PITCH_URL:-https://huggingface.co/AEmotionStudio/basic-pitch-onnx-models/resolve/327fd8ccd2f0bb84cbe56b4a0e9d318398ddf763/nmp.onnx}"
 
-echo "Downloading models into ${MODELS_DIR}"
+echo "Staging models into ${STAGING_DIR} for upload to assets.opendaw.studio"
 echo
 
 download_if_missing "${HTDEMUCS_URL}" "${HTDEMUCS_DEST}" || echo "[warn] htdemucs download failed; set HTDEMUCS_URL and retry"
@@ -79,3 +74,6 @@ for file in "${HTDEMUCS_DEST}" "${BASIC_PITCH_DEST}"; do
         printf "  %-60s %s\n" "${file#${REPO_ROOT}/}" "$(print_sha "${file}")"
     fi
 done
+echo
+echo "Next step: upload the contents of assets.opendaw.studio/ to the CDN"
+echo "preserving the relative paths. The runtime URLs are then live."

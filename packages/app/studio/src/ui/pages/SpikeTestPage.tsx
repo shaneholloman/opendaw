@@ -20,26 +20,35 @@ interface ModelCandidate {
 
 const MODEL_CANDIDATES: ReadonlyArray<ModelCandidate> = [
     {
+        key: "opendaw",
+        label: "assets.opendaw.studio htdemucs v4 (304 MB, MIT) — DEFAULT",
+        url: "https://assets.opendaw.studio/models/htdemucs/v4/model.onnx",
+        bytes: 304_321_552,
+        sha256: "d2b401f322558cd57d67a752ed7be3fa55178a0626011eda8ac7bb74e17280c0",
+        license: "MIT"
+    },
+    {
+        key: "smank",
+        label: "smank/htdemucs-onnx via Hugging Face (304 MB, MIT) — fallback / known-good",
+        url: "https://huggingface.co/smank/htdemucs-onnx/resolve/469b019bf7ac20e03dc68a8fa791323434862390/htdemucs.onnx",
+        bytes: 304_321_552,
+        sha256: "d2b401f322558cd57d67a752ed7be3fa55178a0626011eda8ac7bb74e17280c0",
+        license: "MIT"
+    },
+    {
+        key: "jackjiangxinfa",
+        label: "jackjiangxinfa/demucs-onnx via Hugging Face (304 MB, Apache-2.0) — alternate",
+        url: "https://huggingface.co/jackjiangxinfa/demucs-onnx/resolve/49fcb820b3fa39937e955dda5cef1ad35dec1f7c/model.onnx",
+        bytes: 304_330_587,
+        license: "Apache-2.0"
+    },
+    {
         key: "modernmube",
         label: "ModernMube/HTDemucs_onnx (174 MB, MIT) — KNOWN FAIL: shape mismatch",
         url: "https://huggingface.co/ModernMube/HTDemucs_onnx/resolve/edd8347a8191d6b73635675688d01e125d3ae336/htdemucs.onnx",
         bytes: 174_490_597,
         sha256: "ac056d976fbcf300dbc9e5ae6c1e7c8e7eb9a0ee9000e0449d993e3edef797d6",
         license: "MIT"
-    },
-    {
-        key: "smank",
-        label: "smank/htdemucs-onnx (304 MB, MIT)",
-        url: "https://huggingface.co/smank/htdemucs-onnx/resolve/469b019bf7ac20e03dc68a8fa791323434862390/htdemucs.onnx",
-        bytes: 304_321_552,
-        license: "MIT"
-    },
-    {
-        key: "jackjiangxinfa",
-        label: "jackjiangxinfa/demucs-onnx (304 MB, Apache-2.0)",
-        url: "https://huggingface.co/jackjiangxinfa/demucs-onnx/resolve/49fcb820b3fa39937e955dda5cef1ad35dec1f7c/model.onnx",
-        bytes: 304_330_587,
-        license: "Apache-2.0"
     }
 ]
 
@@ -558,9 +567,10 @@ export const SpikeTestPage: PageFactory<StudioService> = ({lifecycle}) => {
                     <code> onnxruntime-web</code>. Input is a synthetic 7.8 s sine wave at 44.1 kHz; the
                     goal is to confirm the session accepts it, the inference completes, and the output
                     tensors have plausible shapes for a 4-stem split.</span>
-                <span>Multiple candidates are listed because some community ONNX exports of the same
-                    underlying Demucs model carry shape annotations that ORT-Web's strict validator
-                    refuses. Pick a candidate, click Run, watch the log.</span>
+                <span>The default candidate is the openDAW-hosted copy (assets.opendaw.studio). The
+                    Hugging Face fallbacks are kept around so the spike still functions if the openDAW
+                    CDN is unreachable, and so the original "known fail" export remains documented as
+                    a regression test for ORT-Web's strict shape validator.</span>
             </div>
             <div className="controls">
                 <label>Model: {modelSelect}</label>

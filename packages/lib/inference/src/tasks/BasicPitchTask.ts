@@ -22,8 +22,9 @@ export interface BasicPitchOutput {
 export const BasicPitchTask = defineTask<BasicPitchInput, BasicPitchOutput>({
     key: "audio-to-midi",
     model: {
-        // Pinned by commit SHA. See StemSeparationTask for the rationale.
-        url: "https://huggingface.co/AEmotionStudio/basic-pitch-onnx-models/resolve/327fd8ccd2f0bb84cbe56b4a0e9d318398ddf763/nmp.onnx",
+        // Self-hosted on assets.opendaw.studio. Source:
+        // AEmotionStudio/basic-pitch-onnx-models (Apache-2.0).
+        url: "https://assets.opendaw.studio/models/basic-pitch/v0.4.0/model.onnx",
         sha256: "2c3c1d144bfa61ad236e92e169c13535c880469a12a047d4e73451f2c059a0ec",
         bytes: 230_444,
         version: "v0.4.0"

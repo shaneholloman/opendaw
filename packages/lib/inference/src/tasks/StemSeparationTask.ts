@@ -116,11 +116,10 @@ export const combineWindows = (
 export const StemSeparationTask = defineTask<StemSeparationInput, StemSeparationOutput>({
     key: "stem-separation",
     model: {
-        // Pinned by commit SHA so the file is immutable even if the upstream
-        // repo is updated. We use smank's MIT-licensed export (verified via
-        // /spike-test on 2026-05-07); the smaller ModernMube export had a
-        // shape annotation defect that ORT-Web's strict validator refuses.
-        url: "https://huggingface.co/smank/htdemucs-onnx/resolve/469b019bf7ac20e03dc68a8fa791323434862390/htdemucs.onnx",
+        // Self-hosted on assets.opendaw.studio. Source: smank/htdemucs-onnx
+        // (MIT) commit 469b019bf7ac20e03dc68a8fa791323434862390. SHA-256
+        // verified at download time so any CDN drift fails loudly.
+        url: "https://assets.opendaw.studio/models/htdemucs/v4/model.onnx",
         sha256: "d2b401f322558cd57d67a752ed7be3fa55178a0626011eda8ac7bb74e17280c0",
         bytes: 304_321_552,
         version: "v4"

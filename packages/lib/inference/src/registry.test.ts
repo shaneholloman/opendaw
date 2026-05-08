@@ -20,12 +20,10 @@ describe("TaskRegistry", () => {
         }
     })
 
-    it("each task's model URL is an absolute commit-pinned upstream URL", () => {
+    it("each task's model URL is an absolute self-hosted URL", () => {
         for (const key of Object.keys(TaskRegistry) as Array<keyof typeof TaskRegistry>) {
             const url = TaskRegistry[key].model.url
-            expect(url).toMatch(/^https:\/\//)
-            // Hugging Face commit-pinned: /resolve/<40-hex-chars>/
-            expect(url).toMatch(/\/resolve\/[0-9a-f]{40}\//)
+            expect(url).toMatch(/^https:\/\/assets\.opendaw\.studio\/models\//)
         }
     })
 

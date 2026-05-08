@@ -1,5 +1,0 @@
-*.onnx
-*.onnx.data
-*.bin
-*.pt
-*.safetensors
