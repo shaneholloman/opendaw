@@ -2,9 +2,12 @@ import {createElement} from "@opendaw/lib-jsx"
 import {DefaultObservableValue, EmptyExec, isAbsent, isDefined, Option, RuntimeNotifier, UUID} from "@opendaw/lib-std"
 import {Promises} from "@opendaw/lib-runtime"
 import {Files} from "@opendaw/lib-dom"
-import {Inference, TaskKey} from "@opendaw/lib-inference"
+// `@opendaw/lib-inference` is dynamically imported below — keep this as a
+// type-only import so Vite emits it as a separate chunk that loads on the
+// first menu click instead of being pulled into the studio's boot bundle.
+import type {Inference as InferenceNamespace, TaskKey} from "@opendaw/lib-inference"
 import {Errors} from "@opendaw/lib-std"
-import {AudioContentFactory} from "@opendaw/studio-core"
+import {AudioContentFactory, Workers} from "@opendaw/studio-core"
 import {InstrumentFactories, Sample} from "@opendaw/studio-adapters"
 import {AudioFileBox} from "@opendaw/studio-boxes"
 import {ProjectMeta} from "@opendaw/studio-core"
@@ -12,6 +15,22 @@ import {Project} from "@opendaw/studio-core"
 import {ProjectProfile} from "@opendaw/studio-core"
 import {Dialogs} from "@/ui/components/dialogs.tsx"
 import {StudioService} from "@/service/StudioService"
+
+type InferenceModule = typeof import("@opendaw/lib-inference")
+let inferenceLib: InferenceModule | null = null
+
+/**
+ * Lazy-load `@opendaw/lib-inference` and install it (once) on first use.
+ * Subsequent calls return the cached module reference. This keeps the
+ * 30 KB-ish lib-inference chunk out of the studio's boot bundle.
+ */
+const ensureLib = async (): Promise<typeof InferenceNamespace> => {
+    if (inferenceLib === null) {
+        inferenceLib = await import("@opendaw/lib-inference")
+        inferenceLib.Inference.install({opfs: Workers.Opfs})
+    }
+    return inferenceLib.Inference
+}
 
 interface ModelOption {
     readonly key: TaskKey
@@ -23,12 +42,12 @@ const MODELS: ReadonlyArray<ModelOption> = [
     {
         key: "stem-separation",
         label: "htdemucs v4 (smank, MIT)",
-        description: "Hybrid Transformer Demucs v4 — drums / bass / other / vocals.\nONNX export: smank/htdemucs-onnx. License: MIT.\n~300 MB one-time download."
+        description: "Hybrid Transformer Demucs v4 — drums / bass / other / vocals.\nONNX export: smank/htdemucs-onnx. License: MIT."
     },
     {
         key: "stem-separation-alt",
         label: "htdemucs v4 (jackjiangxinfa, Apache-2.0)",
-        description: "Same Demucs v4 architecture, alternate ONNX export.\nUseful for A/B comparing separation quality.\nLicense: Apache-2.0. ~300 MB one-time download."
+        description: "Same Demucs v4 architecture, alternate ONNX export.\nUseful for A/B comparing separation quality. License: Apache-2.0."
     }
 ]
 
@@ -97,21 +116,27 @@ const decodeAudioFile = async (file: File, sampleRate: number):
 const interleavedToPlanar = (planar: Float32Array, channels: number, frames: number): Float32Array =>
     planar.subarray(0, channels * frames)
 
-const pickModel = async (defaultKey: TaskKey): Promise<Option<ModelOption>> => {
+const pickModel = async (Inference: typeof InferenceNamespace,
+                          defaultKey: TaskKey): Promise<Option<ModelOption>> => {
+    const renderDescription = (model: ModelOption): string => {
+        const size = formatBytes(Inference.modelDescriptor(model.key).bytes)
+        return `${model.description}\n${size} one-time download.`
+    }
     const select: HTMLSelectElement = (
         <select style={{font: "inherit", padding: "4px 8px", width: "100%"}}>
             {MODELS.map(model =>
                 <option value={model.key} selected={model.key === defaultKey}>{model.label}</option>)}
         </select>
     ) as HTMLSelectElement
+    const initial = MODELS.find(model => model.key === defaultKey)
     const descriptionEl: HTMLParagraphElement = (
         <p style={{margin: "8px 0 0", opacity: "0.7", fontSize: "12px", whiteSpace: "pre-line"}}>
-            {MODELS.find(model => model.key === defaultKey)?.description ?? ""}
+            {isDefined(initial) ? renderDescription(initial) : ""}
         </p>
     ) as HTMLParagraphElement
     select.addEventListener("change", () => {
         const found = MODELS.find(model => model.key === select.value)
-        descriptionEl.textContent = found?.description ?? ""
+        descriptionEl.textContent = isDefined(found) ? renderDescription(found) : ""
     })
     // Dialogs.show only resolves via its built-in primary button; rely on
     // okText to render "Separate" and read the select value once the
@@ -147,8 +172,15 @@ export namespace AiDemux {
         const file = fileResult.value.at(0)
         if (isAbsent(file)) {return}
 
-        // 2. Pick a model.
-        const modelOption = await pickModel("stem-separation")
+        // 2. Lazy-load lib-inference so the model-selection dialog can show
+        //    each model's actual size. The dialog is the first user-facing
+        //    moment that needs the lib; loading here keeps the boot bundle
+        //    free of lib-inference while still letting descriptions reflect
+        //    `Inference.modelDescriptor(key).bytes`.
+        const Inference = await ensureLib()
+
+        // 3. Pick a model.
+        const modelOption = await pickModel(Inference, "stem-separation")
         if (modelOption.isEmpty()) {return}
         const model = modelOption.unwrap()
 
