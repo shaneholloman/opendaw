@@ -22,13 +22,27 @@ interface ModelOption {
 const MODELS: ReadonlyArray<ModelOption> = [
     {
         key: "stem-separation",
-        label: "htdemucs v4 (4 stems)",
-        description: "Hybrid Transformer Demucs. Splits the input into drums, bass, other, vocals. ~300 MB one-time download."
+        label: "htdemucs v4 (smank, MIT)",
+        description: "Hybrid Transformer Demucs v4 — drums / bass / other / vocals.\nONNX export: smank/htdemucs-onnx. License: MIT.\n~300 MB one-time download."
+    },
+    {
+        key: "stem-separation-alt",
+        label: "htdemucs v4 (jackjiangxinfa, Apache-2.0)",
+        description: "Same Demucs v4 architecture, alternate ONNX export.\nUseful for A/B comparing separation quality.\nLicense: Apache-2.0. ~300 MB one-time download."
     }
 ]
 
 const STEM_NAMES = ["drums", "bass", "other", "vocals"] as const
 type StemName = typeof STEM_NAMES[number]
+
+// SI decimal units (MB = 1,000,000 bytes), matching the convention used by
+// macOS / Hugging Face / most CDNs when reporting "file size".
+const formatBytes = (bytes: number): string => {
+    if (bytes < 1_000) {return `${bytes} B`}
+    if (bytes < 1_000_000) {return `${Math.round(bytes / 1_000)} KB`}
+    if (bytes < 1_000_000_000) {return `${Math.round(bytes / 1_000_000)} MB`}
+    return `${(bytes / 1_000_000_000).toFixed(1)} GB`
+}
 
 const encodeWav16 = (planar: Float32Array, channels: number, sampleRate: number): ArrayBuffer => {
     const numFrames = Math.floor(planar.length / channels)
@@ -158,9 +172,10 @@ export namespace AiDemux {
         if (!cached) {
             const dlProgress = new DefaultObservableValue<number>(0)
             const dlController = new AbortController()
+            const sizeLabel = formatBytes(Inference.modelDescriptor(model.key).bytes)
             const dlDialog = RuntimeNotifier.progress({
                 headline: "Downloading model",
-                message: `${model.label}: fetching model bytes (~300 MB, one-time)...`,
+                message: `${sizeLabel}, one-time`,
                 progress: dlProgress,
                 cancel: () => dlController.abort(Errors.AbortError)
             })
@@ -184,18 +199,34 @@ export namespace AiDemux {
             // Cached: download is instant, but worker session creation takes
             // several seconds for a 300 MB model (shader compile + GPU memory
             // setup). Show an indeterminate-progress dialog so the user has
-            // visual feedback during the wait. No cancel button: the in-flight
-            // session creation is not interruptible.
+            // visual feedback during the wait.
+            //
+            // Cancel here can't actually interrupt InferenceSession.create
+            // (ORT doesn't accept an AbortSignal at session-create time), but
+            // we race the user's abort against the preload promise so cancel
+            // immediately returns control to the user. The worker may keep
+            // loading in the background; the next preload call will then
+            // resolve instantly because the session is already in the cache.
+            const loadController = new AbortController()
             const loadDialog = RuntimeNotifier.progress({
-                headline: "Loading model"
+                headline: "Loading model",
+                cancel: () => loadController.abort(Errors.AbortError)
             })
-            const sessionResult = await Promises.tryCatch(Inference.preload(model.key))
+            const sessionResult = await Promises.tryCatch(Promise.race([
+                Inference.preload(model.key, {signal: loadController.signal}),
+                new Promise<never>((_, reject) => loadController.signal.addEventListener(
+                    "abort", () => reject(Errors.AbortError), {once: true}))
+            ]))
             loadDialog.terminate()
             if (sessionResult.status === "rejected") {
-                await RuntimeNotifier.info({
-                    headline: "AI Demux failed",
-                    message: `Could not load model session: ${sessionResult.error}`
-                })
+                const isAbort = sessionResult.error === Errors.AbortError
+                    || (sessionResult.error instanceof Error && sessionResult.error.name === "AbortError")
+                if (!isAbort) {
+                    await RuntimeNotifier.info({
+                        headline: "AI Demux failed",
+                        message: `Could not load model session: ${sessionResult.error}`
+                    })
+                }
                 return
             }
         }

@@ -1,5 +1,5 @@
 import {asDefined, clampUnit, panic, unitValue} from "@opendaw/lib-std"
-import {defineTask} from "../Task"
+import {defineTask, ModelDescriptor, TaskDefinition, TaskEnvironment} from "../Task"
 import {tensor, TensorMap} from "../Tensor"
 
 export interface StemSeparationInput {
@@ -120,102 +120,6 @@ export const combineWindows = (
     return out
 }
 
-export const StemSeparationTask = defineTask<StemSeparationInput, StemSeparationOutput>({
-    key: "stem-separation",
-    model: {
-        // Self-hosted on assets.opendaw.studio. Source: smank/htdemucs-onnx
-        // (MIT) commit 469b019bf7ac20e03dc68a8fa791323434862390. SHA-256
-        // verified at download time so any CDN drift fails loudly.
-        url: "https://assets.opendaw.studio/models/htdemucs/v4/model.onnx",
-        sha256: "d2b401f322558cd57d67a752ed7be3fa55178a0626011eda8ac7bb74e17280c0",
-        bytes: 304_321_552,
-        version: "v4"
-    },
-    executionProviders: ["webgpu", "wasm"],
-    async run(input, env) {
-        if (input.sampleRate !== HTDEMUCS_SAMPLE_RATE) {
-            return panic(`htdemucs requires ${HTDEMUCS_SAMPLE_RATE} Hz; got ${input.sampleRate}`)
-        }
-        if (env.inputNames.length === 0) {return panic("Model has no inputs")}
-        if (env.outputNames.length === 0) {return panic("Model has no outputs")}
-        const inputName = env.inputNames[0]
-        const channels = input.channels
-        const samplesPerChannel = input.audio.length / channels
-        const window = segmentSamples(input.sampleRate)
-        const overlap = overlapSamples(input.sampleRate)
-        const plan = planChunks(samplesPerChannel, window, overlap)
-
-        // Per-stem accumulators, one Float32Array per stem (planar layout
-        // [channels * window] per chunk).
-        const stemWindows: Record<StemName, Array<Float32Array>> = {
-            drums: [], bass: [], other: [], vocals: []
-        }
-
-        for (let chunkIndex = 0; chunkIndex < plan.starts.length; chunkIndex++) {
-            env.signal.match({
-                none: () => {},
-                some: (signal: AbortSignal) => {
-                    if (signal.aborted) {return panic("Cancelled")}
-                }
-            })
-            const start = plan.starts[chunkIndex]
-            const chunk = new Float32Array(channels * window)
-            // Both `input.audio` and `chunk` use planar layout
-            //   [c0_s0..c0_sN, c1_s0..c1_sN]
-            // so we read with `c * samplesPerChannel + i` and write with
-            // `c * window + i`.
-            for (let c = 0; c < channels; c++) {
-                for (let i = 0; i < window; i++) {
-                    const sourceIndex = start + i
-                    chunk[c * window + i] = sourceIndex < samplesPerChannel
-                        ? input.audio[c * samplesPerChannel + sourceIndex]
-                        : 0
-                }
-            }
-            const feeds: TensorMap = {
-                [inputName]: tensor("float32", chunk, [1, channels, window])
-            }
-            const output = await env.session(feeds)
-            const perStem = extractStems(output, env.outputNames, channels, window)
-            for (const stem of STEM_ORDER) {
-                stemWindows[stem].push(perStem[stem])
-            }
-            env.progress(clampUnit((chunkIndex + 1) / plan.starts.length))
-        }
-
-        // Stitch each stem PER CHANNEL (using the original sample-frame
-        // starts), then re-pack the channels into the planar output buffer.
-        // Treating the planar window as one stream and scaling starts by
-        // `channels` causes inter-channel data to overwrite each other and
-        // produces a half-length, garbled signal.
-        const stems: Record<string, Float32Array> = {}
-        for (const stem of STEM_ORDER) {
-            const windowsPerChannel: Array<Array<Float32Array>> = []
-            for (let c = 0; c < channels; c++) {windowsPerChannel.push([])}
-            for (const win of stemWindows[stem]) {
-                for (let c = 0; c < channels; c++) {
-                    windowsPerChannel[c].push(win.subarray(c * window, (c + 1) * window))
-                }
-            }
-            const merged = new Float32Array(channels * samplesPerChannel)
-            for (let c = 0; c < channels; c++) {
-                const stitched = combineWindows(windowsPerChannel[c], plan.starts, overlap, samplesPerChannel)
-                merged.set(stitched, c * samplesPerChannel)
-            }
-            stems[stem] = merged
-        }
-
-        return {
-            drums: stems.drums,
-            bass: stems.bass,
-            other: stems.other,
-            vocals: stems.vocals,
-            sampleRate: input.sampleRate,
-            channels
-        }
-    }
-})
-
 /**
  * Adapt the model's output to the canonical 4-stem array. The export may
  * emit either:
@@ -261,3 +165,120 @@ const extractStems = (
     }
     return stems as Record<StemName, Float32Array>
 }
+
+const htdemucsRun = async (
+    input: StemSeparationInput,
+    env: TaskEnvironment
+): Promise<StemSeparationOutput> => {
+    if (input.sampleRate !== HTDEMUCS_SAMPLE_RATE) {
+        return panic(`htdemucs requires ${HTDEMUCS_SAMPLE_RATE} Hz; got ${input.sampleRate}`)
+    }
+    if (env.inputNames.length === 0) {return panic("Model has no inputs")}
+    if (env.outputNames.length === 0) {return panic("Model has no outputs")}
+    const inputName = env.inputNames[0]
+    const channels = input.channels
+    const samplesPerChannel = input.audio.length / channels
+    const window = segmentSamples(input.sampleRate)
+    const overlap = overlapSamples(input.sampleRate)
+    const plan = planChunks(samplesPerChannel, window, overlap)
+
+    // Per-stem accumulators, one Float32Array per stem (planar layout
+    // [channels * window] per chunk).
+    const stemWindows: Record<StemName, Array<Float32Array>> = {
+        drums: [], bass: [], other: [], vocals: []
+    }
+
+    for (let chunkIndex = 0; chunkIndex < plan.starts.length; chunkIndex++) {
+        env.signal.match({
+            none: () => {},
+            some: (signal: AbortSignal) => {
+                if (signal.aborted) {return panic("Cancelled")}
+            }
+        })
+        const start = plan.starts[chunkIndex]
+        const chunk = new Float32Array(channels * window)
+        // Both `input.audio` and `chunk` use planar layout
+        //   [c0_s0..c0_sN, c1_s0..c1_sN]
+        // so we read with `c * samplesPerChannel + i` and write with
+        // `c * window + i`.
+        for (let c = 0; c < channels; c++) {
+            for (let i = 0; i < window; i++) {
+                const sourceIndex = start + i
+                chunk[c * window + i] = sourceIndex < samplesPerChannel
+                    ? input.audio[c * samplesPerChannel + sourceIndex]
+                    : 0
+            }
+        }
+        const feeds: TensorMap = {
+            [inputName]: tensor("float32", chunk, [1, channels, window])
+        }
+        const output = await env.session(feeds)
+        const perStem = extractStems(output, env.outputNames, channels, window)
+        for (const stem of STEM_ORDER) {
+            stemWindows[stem].push(perStem[stem])
+        }
+        env.progress(clampUnit((chunkIndex + 1) / plan.starts.length))
+    }
+
+    // Stitch each stem PER CHANNEL (using the original sample-frame
+    // starts), then re-pack the channels into the planar output buffer.
+    // Treating the planar window as one stream and scaling starts by
+    // `channels` causes inter-channel data to overwrite each other and
+    // produces a half-length, garbled signal.
+    const stems: Record<string, Float32Array> = {}
+    for (const stem of STEM_ORDER) {
+        const windowsPerChannel: Array<Array<Float32Array>> = []
+        for (let c = 0; c < channels; c++) {windowsPerChannel.push([])}
+        for (const win of stemWindows[stem]) {
+            for (let c = 0; c < channels; c++) {
+                windowsPerChannel[c].push(win.subarray(c * window, (c + 1) * window))
+            }
+        }
+        const merged = new Float32Array(channels * samplesPerChannel)
+        for (let c = 0; c < channels; c++) {
+            const stitched = combineWindows(windowsPerChannel[c], plan.starts, overlap, samplesPerChannel)
+            merged.set(stitched, c * samplesPerChannel)
+        }
+        stems[stem] = merged
+    }
+
+    return {
+        drums: stems.drums,
+        bass: stems.bass,
+        other: stems.other,
+        vocals: stems.vocals,
+        sampleRate: input.sampleRate,
+        channels: input.channels
+    }
+}
+
+const createHtdemucsTask = (key: string, model: ModelDescriptor): TaskDefinition<StemSeparationInput, StemSeparationOutput> =>
+    defineTask<StemSeparationInput, StemSeparationOutput>({
+        key,
+        model,
+        executionProviders: ["webgpu", "wasm"],
+        run: htdemucsRun
+    })
+
+/**
+ * htdemucs v4 from `smank/htdemucs-onnx` (MIT). Self-hosted on
+ * assets.opendaw.studio. Verified working in ORT-Web (WebGPU + WASM EPs).
+ */
+export const StemSeparationTask = createHtdemucsTask("stem-separation", {
+    url: "https://assets.opendaw.studio/models/htdemucs/v4/model.onnx",
+    sha256: "d2b401f322558cd57d67a752ed7be3fa55178a0626011eda8ac7bb74e17280c0",
+    bytes: 250_000_000,
+    version: "v4-smank"
+})
+
+/**
+ * htdemucs v4 from `jackjiangxinfa/demucs-onnx` (Apache-2.0). Same upstream
+ * Demucs v4 architecture, different ONNX export. Useful for A/B comparing
+ * separation quality. Self-hosted on assets.opendaw.studio.
+ */
+export const StemSeparationAltTask = createHtdemucsTask("stem-separation-alt", {
+    url: "https://assets.opendaw.studio/models/htdemucs-jx/v4/model.onnx",
+    sha256: "0cf9f378b3a736efacafe09b8c07aafbb3109568c274ffb7b963b540aa1978d2",
+    bytes: 304_330_587,
+    version: "v4-jx"
+})

@@ -5,7 +5,13 @@ describe("TaskRegistry", () => {
     it("contains stem-separation", () => {
         expect(TaskRegistry["stem-separation"]).toBeDefined()
         expect(TaskRegistry["stem-separation"].key).toBe("stem-separation")
-        expect(TaskRegistry["stem-separation"].model.version).toBe("v4")
+        expect(TaskRegistry["stem-separation"].model.version).toMatch(/^v4/)
+    })
+
+    it("contains stem-separation-alt", () => {
+        expect(TaskRegistry["stem-separation-alt"]).toBeDefined()
+        expect(TaskRegistry["stem-separation-alt"].key).toBe("stem-separation-alt")
+        expect(TaskRegistry["stem-separation-alt"].model.version).toMatch(/^v4/)
     })
 
     it("contains audio-to-midi", () => {

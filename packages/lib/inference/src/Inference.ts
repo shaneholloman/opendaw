@@ -1,5 +1,5 @@
 import {asDefined, isAbsent, isDefined, Option, panic, Procedure, Provider, Terminable, unitValue} from "@opendaw/lib-std"
-import {ExecutionProvider, TaskDefinition} from "./Task"
+import {ExecutionProvider, ModelDescriptor, TaskDefinition} from "./Task"
 import {TaskInput, TaskKey, TaskOutput} from "./registry"
 import {InferenceConfig, installInferenceConfig, requireInferenceConfig} from "./InferenceConfig"
 import {TaskRegistry} from "./registry"
@@ -104,6 +104,14 @@ export namespace Inference {
         const task = lookupTask(key)
         return ModelStore.isCached(task.key, task.model)
     }
+
+    /**
+     * The model descriptor (URL, SHA-256, bytes, version) for a task. Useful
+     * for formatting download-size messages in confirmation dialogs without
+     * duplicating the bytes/version values in the consumer.
+     */
+    export const modelDescriptor = <K extends TaskKey>(key: K): ModelDescriptor =>
+        lookupTask(key).model
 
     /**
      * Ensure the model is downloaded (cache hit or fresh fetch with progress)

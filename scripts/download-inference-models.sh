@@ -55,6 +55,13 @@ HTDEMUCS_DEST="${STAGING_DIR}/htdemucs/v4/model.onnx"
 HTDEMUCS_URL="${HTDEMUCS_URL:-https://huggingface.co/smank/htdemucs-onnx/resolve/469b019bf7ac20e03dc68a8fa791323434862390/htdemucs.onnx}"
 
 # ---------------------------------------------------------------------------
+# Stem separation alt: htdemucs v4 (jackjiangxinfa/demucs-onnx)
+# License: Apache-2.0. Same architecture, different export. Useful for A/B.
+# ---------------------------------------------------------------------------
+HTDEMUCS_JX_DEST="${STAGING_DIR}/htdemucs-jx/v4/model.onnx"
+HTDEMUCS_JX_URL="${HTDEMUCS_JX_URL:-https://huggingface.co/jackjiangxinfa/demucs-onnx/resolve/49fcb820b3fa39937e955dda5cef1ad35dec1f7c/model.onnx}"
+
+# ---------------------------------------------------------------------------
 # Audio-to-MIDI: Spotify Basic Pitch (polyphonic transcription)
 # License: Apache-2.0 (spotify/basic-pitch); ONNX via AEmotionStudio.
 # ---------------------------------------------------------------------------
@@ -65,11 +72,12 @@ echo "Staging models into ${STAGING_DIR} for upload to assets.opendaw.studio"
 echo
 
 download_if_missing "${HTDEMUCS_URL}" "${HTDEMUCS_DEST}" || echo "[warn] htdemucs download failed; set HTDEMUCS_URL and retry"
+download_if_missing "${HTDEMUCS_JX_URL}" "${HTDEMUCS_JX_DEST}" || echo "[warn] htdemucs-jx download failed; set HTDEMUCS_JX_URL and retry"
 download_if_missing "${BASIC_PITCH_URL}" "${BASIC_PITCH_DEST}" || echo "[warn] basic-pitch download failed; set BASIC_PITCH_URL and retry"
 
 echo
 echo "SHA-256 digests (cross-check against TaskDefinition.model.sha256):"
-for file in "${HTDEMUCS_DEST}" "${BASIC_PITCH_DEST}"; do
+for file in "${HTDEMUCS_DEST}" "${HTDEMUCS_JX_DEST}" "${BASIC_PITCH_DEST}"; do
     if [[ -f "${file}" ]]; then
         printf "  %-60s %s\n" "${file#${REPO_ROOT}/}" "$(print_sha "${file}")"
     fi
