@@ -1,18 +1,24 @@
 import {createElement} from "@opendaw/lib-jsx"
-import {DefaultObservableValue, EmptyExec, isAbsent, isDefined, Option, RuntimeNotifier, UUID} from "@opendaw/lib-std"
+import {
+    Bytes,
+    DefaultObservableValue,
+    Errors,
+    isAbsent,
+    isDefined,
+    Option,
+    RuntimeNotifier,
+    UUID
+} from "@opendaw/lib-std"
 import {Promises} from "@opendaw/lib-runtime"
 import {Files} from "@opendaw/lib-dom"
+import {WavFile} from "@opendaw/lib-dsp"
 // `@opendaw/lib-inference` is dynamically imported below — keep this as a
 // type-only import so Vite emits it as a separate chunk that loads on the
 // first menu click instead of being pulled into the studio's boot bundle.
 import type {Inference as InferenceNamespace, TaskKey} from "@opendaw/lib-inference"
-import {Errors} from "@opendaw/lib-std"
-import {AudioContentFactory, Workers} from "@opendaw/studio-core"
+import {AudioContentFactory, Project, ProjectMeta, ProjectProfile, Workers} from "@opendaw/studio-core"
 import {InstrumentFactories, Sample} from "@opendaw/studio-adapters"
 import {AudioFileBox} from "@opendaw/studio-boxes"
-import {ProjectMeta} from "@opendaw/studio-core"
-import {Project} from "@opendaw/studio-core"
-import {ProjectProfile} from "@opendaw/studio-core"
 import {Dialogs} from "@/ui/components/dialogs.tsx"
 import {StudioService} from "@/service/StudioService"
 
@@ -54,51 +60,8 @@ const MODELS: ReadonlyArray<ModelOption> = [
 const STEM_NAMES = ["drums", "bass", "other", "vocals"] as const
 type StemName = typeof STEM_NAMES[number]
 
-// SI decimal units (MB = 1,000,000 bytes), matching the convention used by
-// macOS / Hugging Face / most CDNs when reporting "file size".
-const formatBytes = (bytes: number): string => {
-    if (bytes < 1_000) {return `${bytes} B`}
-    if (bytes < 1_000_000) {return `${Math.round(bytes / 1_000)} KB`}
-    if (bytes < 1_000_000_000) {return `${Math.round(bytes / 1_000_000)} MB`}
-    return `${(bytes / 1_000_000_000).toFixed(1)} GB`
-}
-
-const encodeWav16 = (planar: Float32Array, channels: number, sampleRate: number): ArrayBuffer => {
-    const numFrames = Math.floor(planar.length / channels)
-    const dataSize = numFrames * channels * 2
-    const buffer = new ArrayBuffer(44 + dataSize)
-    const view = new DataView(buffer)
-    let offset = 0
-    const writeStr = (str: string) => {
-        for (let i = 0; i < str.length; i++) {view.setUint8(offset + i, str.charCodeAt(i))}
-        offset += str.length
-    }
-    writeStr("RIFF")
-    view.setUint32(offset, 36 + dataSize, true); offset += 4
-    writeStr("WAVE")
-    writeStr("fmt ")
-    view.setUint32(offset, 16, true); offset += 4
-    view.setUint16(offset, 1, true); offset += 2
-    view.setUint16(offset, channels, true); offset += 2
-    view.setUint32(offset, sampleRate, true); offset += 4
-    view.setUint32(offset, sampleRate * channels * 2, true); offset += 4
-    view.setUint16(offset, channels * 2, true); offset += 2
-    view.setUint16(offset, 16, true); offset += 2
-    writeStr("data")
-    view.setUint32(offset, dataSize, true); offset += 4
-    for (let i = 0; i < numFrames; i++) {
-        for (let c = 0; c < channels; c++) {
-            const value = planar[c * numFrames + i]
-            const clamped = Math.max(-1, Math.min(1, value))
-            view.setInt16(offset, Math.round(clamped * 0x7fff), true)
-            offset += 2
-        }
-    }
-    return buffer
-}
-
 const decodeAudioFile = async (file: File, sampleRate: number):
-    Promise<{audio: Float32Array, channels: 1 | 2, frames: number}> => {
+    Promise<{ audio: Float32Array, channels: 1 | 2, frames: number }> => {
     const arrayBuffer = await file.arrayBuffer()
     const ctx = new AudioContext({sampleRate})
     const decoded = await ctx.decodeAudioData(arrayBuffer)
@@ -113,13 +76,10 @@ const decodeAudioFile = async (file: File, sampleRate: number):
     return {audio: planar, channels, frames}
 }
 
-const interleavedToPlanar = (planar: Float32Array, channels: number, frames: number): Float32Array =>
-    planar.subarray(0, channels * frames)
-
 const pickModel = async (Inference: typeof InferenceNamespace,
-                          defaultKey: TaskKey): Promise<Option<ModelOption>> => {
+                         defaultKey: TaskKey): Promise<Option<ModelOption>> => {
     const renderDescription = (model: ModelOption): string => {
-        const size = formatBytes(Inference.modelDescriptor(model.key).bytes)
+        const size = Bytes.toString(Inference.modelDescriptor(model.key).bytes)
         return `${model.description}\n${size} one-time download.`
     }
     const select: HTMLSelectElement = (
@@ -186,9 +146,9 @@ export namespace AiDemux {
 
         // 3. Ensure a project profile exists (mirrors importStems).
         if (!service.hasProfile) {
-            (service as unknown as {projectProfileService: {setValue(v: Option<ProjectProfile>): void}})
+            (service as unknown as { projectProfileService: { setValue(v: Option<ProjectProfile>): void } })
                 .projectProfileService.setValue(Option.wrap(
-                    new ProjectProfile(UUID.generate(), Project.new(service), ProjectMeta.init("Untitled"), Option.None)))
+                new ProjectProfile(UUID.generate(), Project.new(service), ProjectMeta.init("Untitled"), Option.None)))
         }
 
         // 4. Decode the audio file at 44.1 kHz.
@@ -204,7 +164,7 @@ export namespace AiDemux {
         if (!cached) {
             const dlProgress = new DefaultObservableValue<number>(0)
             const dlController = new AbortController()
-            const sizeLabel = formatBytes(Inference.modelDescriptor(model.key).bytes)
+            const sizeLabel = Bytes.toString(Inference.modelDescriptor(model.key).bytes)
             const dlDialog = RuntimeNotifier.progress({
                 headline: "Downloading model",
                 message: `${sizeLabel}, one-time`,
@@ -302,11 +262,16 @@ export namespace AiDemux {
             message: "Importing stems..."
         })
         const project = service.project
-        const sampleService = (service as unknown as {sampleService: typeof service["sampleService"]}).sampleService
-        const importResults: Array<{name: StemName, sample: Sample}> = []
+        const sampleService = (service as unknown as { sampleService: typeof service["sampleService"] }).sampleService
+        const importResults: Array<{ name: StemName, sample: Sample }> = []
         for (const stemName of STEM_NAMES) {
-            const planar = interleavedToPlanar(stems[stemName], channels, frames)
-            const arrayBuffer = encodeWav16(planar, channels, 44100)
+            const planar = stems[stemName].subarray(0, channels * frames)
+            const arrayBuffer = WavFile.encodeInts16({
+                sampleRate: 44100,
+                length: frames,
+                numberOfChannels: channels,
+                getChannelData: (c: number) => planar.subarray(c * frames, (c + 1) * frames)
+            })
             const importResult = await Promises.tryCatch(sampleService.importFile({
                 name: stemName,
                 arrayBuffer
@@ -339,10 +304,5 @@ export namespace AiDemux {
                 })
             }
         })
-
-        await RuntimeNotifier.info({
-            headline: "AI Demux complete",
-            message: `Separated ${importResults.length} stem(s) from "${file.name}".`
-        }).catch(EmptyExec)
     }
 }
