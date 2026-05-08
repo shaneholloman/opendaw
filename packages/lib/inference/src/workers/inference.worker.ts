@@ -1,5 +1,5 @@
 /// <reference lib="webworker" />
-import {panic} from "@opendaw/lib-std"
+import {asDefined, isDefined, panic} from "@opendaw/lib-std"
 import {Promises} from "@opendaw/lib-runtime"
 import {InferenceSession, Tensor as OrtTensor, env as ortEnv} from "onnxruntime-web"
 import {Tensor, TensorElementType, TensorMap} from "../Tensor"
@@ -60,20 +60,18 @@ const fromOrtResults = (output: InferenceSession.OnnxValueMapType): TensorMap =>
 }
 
 const handleLoad = async (msg: Extract<MainToWorker, {kind: "load"}>): Promise<void> => {
-    if (sessions.has(msg.taskKey)) {
-        post({kind: "ok", id: msg.id})
-        return
+    let session = sessions.get(msg.taskKey)
+    if (!isDefined(session)) {
+        session = await InferenceSession.create(msg.modelBytes, {
+            executionProviders: [...msg.executionProviders, "wasm"]
+        })
+        sessions.set(msg.taskKey, session)
     }
-    const session = await InferenceSession.create(msg.modelBytes, {
-        executionProviders: [...msg.executionProviders, "wasm"]
-    })
-    sessions.set(msg.taskKey, session)
-    post({kind: "ok", id: msg.id})
+    post({kind: "loaded", id: msg.id, inputs: session.inputNames, outputs: session.outputNames})
 }
 
 const handleRun = async (msg: Extract<MainToWorker, {kind: "run"}>): Promise<void> => {
-    const session = sessions.get(msg.taskKey)
-    if (session === undefined) {return panic(`Session not loaded for task: ${msg.taskKey}`)}
+    const session = asDefined(sessions.get(msg.taskKey), `Session not loaded for task: ${msg.taskKey}`)
     const feeds = toOrtFeeds(msg.feeds)
     const output = await session.run(feeds)
     post({kind: "result", id: msg.id, output: fromOrtResults(output)})
@@ -81,7 +79,7 @@ const handleRun = async (msg: Extract<MainToWorker, {kind: "run"}>): Promise<voi
 
 const handleRelease = (msg: Extract<MainToWorker, {kind: "release"}>): void => {
     const session = sessions.get(msg.taskKey)
-    if (session !== undefined) {
+    if (isDefined(session)) {
         session.release().catch(() => {})
         sessions.delete(msg.taskKey)
     }

@@ -215,6 +215,8 @@ export const SpikeTestPage: PageFactory<StudioService> = ({lifecycle}) => {
         </select>
     ) as HTMLSelectElement
     const fileInput: HTMLInputElement = <input type="file" accept="audio/*"/> as HTMLInputElement
+    const sepBar: HTMLProgressElement = <progress max="1" value="0"/> as HTMLProgressElement
+    const sepText: HTMLSpanElement = <span className="dim">idle</span>
     const stemsContainer: HTMLDivElement = <div className="stems"/> as HTMLDivElement
     let runButton: HTMLInputElement | null = null
     let separateButton: HTMLInputElement | null = null
@@ -510,6 +512,8 @@ export const SpikeTestPage: PageFactory<StudioService> = ({lifecycle}) => {
             log(`Planning ${plan.starts.length} chunk(s) of ${SEGMENT_SAMPLES} samples (${SEGMENT_SECONDS.toFixed(2)} s) with overlap.`)
             const stemWindows: Record<StemName, Array<Float32Array>> = {drums: [], bass: [], other: [], vocals: []}
             const tInfStart = performance.now()
+            sepBar.value = 0
+            sepText.textContent = `0/${plan.starts.length} chunks`
             for (let i = 0; i < plan.starts.length; i++) {
                 const start = plan.starts[i]
                 log(`  chunk ${i + 1}/${plan.starts.length} at ${(start / SAMPLE_RATE).toFixed(2)}s...`)
@@ -522,6 +526,9 @@ export const SpikeTestPage: PageFactory<StudioService> = ({lifecycle}) => {
                 for (const name of STEM_NAMES) {
                     stemWindows[name].push(stems[name])
                 }
+                const fraction = (i + 1) / plan.starts.length
+                sepBar.value = fraction
+                sepText.textContent = `${i + 1}/${plan.starts.length} chunks (${(fraction * 100).toFixed(0)}%)`
             }
             const totalInf = ((performance.now() - tInfStart) / 1000).toFixed(2)
             log(`All ${plan.starts.length} chunk(s) inferred in ${totalInf}s.`, "ok")
@@ -602,6 +609,9 @@ export const SpikeTestPage: PageFactory<StudioService> = ({lifecycle}) => {
                         style={{fontSize: "0.85em"}}
                         onInit={el => {separateButton = el as HTMLInputElement}}
                         onClick={separateFile}>Separate stems</Button>
+            </div>
+            <div>
+                Separation:&nbsp;{sepBar}&nbsp;{sepText}
             </div>
             {stemsContainer}
             {logEl}

@@ -14,6 +14,8 @@ export interface TaskEnvironment {
     readonly session: SessionRun
     readonly progress: Procedure<unitValue>
     readonly signal: Option<AbortSignal>
+    readonly inputNames: ReadonlyArray<string>
+    readonly outputNames: ReadonlyArray<string>
 }
 
 export interface TaskDefinition<I, O> {

@@ -57,6 +57,14 @@ export namespace ModelStore {
         await Promises.tryCatch(opfs.delete(path))
     }
 
+    export const isCached = async (taskKey: string, model: ModelDescriptor): Promise<boolean> => {
+        const {opfs} = requireInferenceConfig()
+        const meta = await readMeta(opfs, taskKey, model.version)
+        if (meta.isEmpty() || meta.unwrap().sha256 !== model.sha256) {return false}
+        // Trust meta.json's recorded sha; avoid reading 300+ MB just to probe.
+        return opfs.exists(modelPath(taskKey, model.version))
+    }
+
     const readCached = async (opfs: OpfsProtocol,
                               taskKey: string,
                               model: ModelDescriptor): Promise<Option<Uint8Array>> => {

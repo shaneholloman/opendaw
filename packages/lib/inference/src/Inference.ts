@@ -1,12 +1,25 @@
-import {Option, panic, Procedure, Provider, Terminable, unitValue} from "@opendaw/lib-std"
+import {asDefined, isAbsent, isDefined, Option, panic, Procedure, Provider, Terminable, unitValue} from "@opendaw/lib-std"
 import {ExecutionProvider, TaskDefinition} from "./Task"
 import {TaskInput, TaskKey, TaskOutput} from "./registry"
 import {InferenceConfig, installInferenceConfig, requireInferenceConfig} from "./InferenceConfig"
 import {TaskRegistry} from "./registry"
 import {EngineHost, runTask} from "./EngineHost"
 import {InferenceEngineError} from "./Errors"
+import {ModelStore} from "./ModelStore"
 
 export interface RunOptions {
+    readonly progress?: Procedure<unitValue>
+    readonly signal?: AbortSignal
+    readonly executionProvider?: ExecutionProvider | "auto"
+    /**
+     * Fraction of overall progress mapped to the download / session-load
+     * phase. Default 0.5. Set to 0 after a successful `Inference.preload`
+     * so the progress callback receives only the inference portion.
+     */
+    readonly downloadShare?: number
+}
+
+export interface PreloadOptions {
     readonly progress?: Procedure<unitValue>
     readonly signal?: AbortSignal
     readonly executionProvider?: ExecutionProvider | "auto"
@@ -36,13 +49,14 @@ const resolveProviders = (
     available: ReadonlyArray<ExecutionProvider>,
     requested: ExecutionProvider | "auto" | undefined
 ): ReadonlyArray<ExecutionProvider> => {
-    if (requested === undefined || requested === "auto") {return available}
+    if (isAbsent(requested) || requested === "auto") {return available}
     return [requested]
 }
 
 const lookupTask = <K extends TaskKey>(key: K): TaskDefinition<TaskInput<K>, TaskOutput<K>> => {
-    const task = (TaskRegistry as Readonly<Record<string, TaskDefinition<unknown, unknown>>>)[key as string]
-    if (task === undefined) {return panic(`Unknown inference task: ${String(key)}`)}
+    const task = asDefined(
+        (TaskRegistry as Readonly<Record<string, TaskDefinition<unknown, unknown>>>)[key as string],
+        `Unknown inference task: ${String(key)}`)
     return task as TaskDefinition<TaskInput<K>, TaskOutput<K>>
 }
 
@@ -69,14 +83,44 @@ export namespace Inference {
         const engineHost = requireHost()
         const task = lookupTask(key)
         const progress = options?.progress ?? NO_PROGRESS
-        const signal = options?.signal === undefined ? Option.None : Option.wrap(options.signal)
+        const signal = isDefined(options?.signal) ? Option.wrap(options.signal) : Option.None
         return engineHost.enqueue(() => runTask<TaskInput<K>, TaskOutput<K>>(engineHost, {
             task,
             input,
             progress,
             signal,
-            executionProviders: resolveProviders(task.executionProviders, options?.executionProvider)
+            executionProviders: resolveProviders(task.executionProviders, options?.executionProvider),
+            downloadShare: options?.downloadShare
         }))
+    }
+
+    /**
+     * Whether the model bytes for `key` are already cached in OPFS with a
+     * SHA-256 matching the task definition. Useful for deciding whether to
+     * show a download dialog before calling `preload` or `run`.
+     */
+    export const isCached = async <K extends TaskKey>(key: K): Promise<boolean> => {
+        requireInferenceConfig()
+        const task = lookupTask(key)
+        return ModelStore.isCached(task.key, task.model)
+    }
+
+    /**
+     * Ensure the model is downloaded (cache hit or fresh fetch with progress)
+     * AND its session is created in the worker. Resolves once the session is
+     * ready to run inference. Subsequent `run` calls are inference-only.
+     */
+    export const preload = async <K extends TaskKey>(
+        key: K,
+        options?: PreloadOptions
+    ): Promise<void> => {
+        requireInferenceConfig()
+        const engineHost = requireHost()
+        const task = lookupTask(key)
+        await engineHost.ensureLoaded(task.key, task.model, resolveProviders(task.executionProviders, options?.executionProvider), {
+            progress: options?.progress,
+            signal: options?.signal
+        })
     }
 
     export const acquire = <K extends TaskKey>(key: K): Promise<TaskHandle<K>> => {
@@ -92,7 +136,7 @@ export namespace Inference {
                         return Promise.reject(new InferenceEngineError("TaskHandle has been released"))
                     }
                     const progress = options?.progress ?? NO_PROGRESS
-                    const signal = options?.signal === undefined ? Option.None : Option.wrap(options.signal)
+                    const signal = isDefined(options?.signal) ? Option.wrap(options.signal) : Option.None
                     return engineHost.enqueue(() => runTask<TaskInput<K>, TaskOutput<K>>(engineHost, {
                         task,
                         input,

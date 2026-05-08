@@ -21,10 +21,16 @@ export interface EngineHostOptions {
     readonly workerFactory: Provider<Worker>
 }
 
+export interface SessionNames {
+    readonly inputs: ReadonlyArray<string>
+    readonly outputs: ReadonlyArray<string>
+}
+
 export class EngineHost {
     readonly #workerFactory: Provider<Worker>
     readonly #pending = new Map<WorkerCallId, PendingCall>()
     readonly #loadedTasks = new Set<string>()
+    readonly #names = new Map<string, SessionNames>()
     readonly #queue: Array<QueueEntry> = []
 
     #worker: Option<Worker> = Option.None
@@ -47,7 +53,7 @@ export class EngineHost {
         const modelBytes = await ModelStore.ensure(taskKey, model, options)
         await this.#ensureWorker()
         this.#throwIfAborted(options?.signal)
-        await this.#dispatch<Extract<WorkerToMain, {kind: "ok"}>>({
+        const ack = await this.#dispatch<Extract<WorkerToMain, {kind: "loaded"}>>({
             kind: "load",
             id: this.#nextId(),
             taskKey,
@@ -55,7 +61,14 @@ export class EngineHost {
             modelBytes,
             executionProviders
         })
+        this.#names.set(taskKey, {inputs: ack.inputs, outputs: ack.outputs})
         this.#loadedTasks.add(taskKey)
+    }
+
+    namesFor(taskKey: string): SessionNames {
+        const names = this.#names.get(taskKey)
+        if (isDefined(names)) {return names}
+        return panic(`Session names not available for task: ${taskKey}`)
     }
 
     sessionRunFor(taskKey: string, signal: Option<AbortSignal>): SessionRun {
@@ -150,6 +163,7 @@ export class EngineHost {
         this.#pending.delete(msg.id)
         if (msg.kind === "error") {pending.reject(new Error(msg.message)); return}
         if (msg.kind === "ok") {pending.resolve(msg); return}
+        if (msg.kind === "loaded") {pending.resolve(msg); return}
         if (msg.kind === "result") {pending.resolve(msg); return}
     }
 
@@ -185,6 +199,13 @@ export interface RunArgs<I, O> {
     readonly progress: Procedure<unitValue>
     readonly signal: Option<AbortSignal>
     readonly executionProviders: ReadonlyArray<ExecutionProvider>
+    /**
+     * Fraction of the overall progress that the download / session-load phase
+     * occupies. Defaults to 0.5 (download ↔ inference split). Pass 0 if the
+     * caller has already preloaded the session (download is a guaranteed
+     * cache hit) and the dialog should map 0..1 directly to inference.
+     */
+    readonly downloadShare?: number
 }
 
 export const splitProgress = (
@@ -200,15 +221,19 @@ export const splitProgress = (
 
 export const runTask = async <I, O>(host: EngineHost, args: RunArgs<I, O>): Promise<O> => {
     const overall = args.progress
-    const split = splitProgress(overall, 0.5)
+    const share = args.downloadShare ?? 0.5
+    const split = splitProgress(overall, share)
     await host.ensureLoaded(args.task.key, args.task.model, args.executionProviders, {
         progress: split.download,
         signal: args.signal.unwrapOrUndefined()
     })
     const session = host.sessionRunFor(args.task.key, args.signal)
+    const names = host.namesFor(args.task.key)
     return args.task.run(args.input, {
         session,
         progress: split.inference,
-        signal: args.signal
+        signal: args.signal,
+        inputNames: names.inputs,
+        outputNames: names.outputs
     })
 }

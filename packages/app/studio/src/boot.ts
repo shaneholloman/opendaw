@@ -26,6 +26,7 @@ import {MissingFeature} from "@/ui/MissingFeature.tsx"
 import {UpdateMessage} from "@/ui/UpdateMessage.tsx"
 import {showStoragePersistDialog} from "@/AppDialogs"
 import {Promises} from "@opendaw/lib-runtime"
+import {Inference} from "@opendaw/lib-inference"
 import {AnimationFrame, Browser, Html, ShortcutManager} from "@opendaw/lib-dom"
 import {AudioOutputDevice} from "@/audio/AudioOutputDevice"
 import {installLatencyReporter} from "@/LatencyReporter"
@@ -54,6 +55,7 @@ export const boot = async ({workersUrl, workletsUrl, offlineEngineUrl}: {
     console.debug("buildInfo", JSON.stringify(buildInfo, null, 2))
     await FontLoader.load()
     await Workers.install(workersUrl)
+    Inference.install({opfs: Workers.Opfs})
     AudioWorklets.install(workletsUrl)
     OfflineEngineRenderer.install(offlineEngineUrl)
     const testFeaturesResult = await Promises.tryCatch(testFeatures())

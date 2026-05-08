@@ -61,7 +61,7 @@ class FakeWorker {
 
     respondTo(message: MainToWorker): WorkerToMain | undefined {
         switch (message.kind) {
-            case "load":     return {kind: "ok", id: message.id}
+            case "load":     return {kind: "loaded", id: message.id, inputs: ["mix"], outputs: ["drums", "bass", "other", "vocals"]}
             case "release":  return {kind: "ok", id: message.id}
             case "shutdown": return {kind: "ok", id: message.id}
             case "run":      return {

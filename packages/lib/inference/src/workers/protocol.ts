@@ -12,5 +12,6 @@ export type MainToWorker =
 export type WorkerToMain =
     | { kind: "ready" }
     | { kind: "ok", id: WorkerCallId }
+    | { kind: "loaded", id: WorkerCallId, inputs: ReadonlyArray<string>, outputs: ReadonlyArray<string> }
     | { kind: "result", id: WorkerCallId, output: TensorMap }
     | { kind: "error", id: WorkerCallId, message: string }

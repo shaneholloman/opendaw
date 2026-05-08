@@ -100,7 +100,9 @@ describe("StemSeparationTask integration (with mock session)", () => {
         const result = await StemSeparationTask.run({audio, channels, sampleRate}, {
             session: fakeSession,
             progress: value => progressValues.push(value),
-            signal: Option.None
+            signal: Option.None,
+            inputNames: ["mix"],
+            outputNames: ["drums", "bass", "other", "vocals"]
         })
 
         expect(callCount).toBeGreaterThan(0)
@@ -119,7 +121,13 @@ describe("StemSeparationTask integration (with mock session)", () => {
     it("rejects non-44100Hz input", async () => {
         await expect(StemSeparationTask.run(
             {audio: new Float32Array(48000), channels: 1, sampleRate: 48000},
-            {session: async () => ({}), progress: () => {}, signal: Option.None}
+            {
+                session: async () => ({}),
+                progress: () => {},
+                signal: Option.None,
+                inputNames: ["mix"],
+                outputNames: ["drums", "bass", "other", "vocals"]
+            }
         )).rejects.toThrow(/44100/)
     })
 })

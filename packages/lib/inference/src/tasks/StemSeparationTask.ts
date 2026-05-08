@@ -1,9 +1,16 @@
-import {clampUnit, panic, unitValue} from "@opendaw/lib-std"
+import {asDefined, clampUnit, panic, unitValue} from "@opendaw/lib-std"
 import {defineTask} from "../Task"
 import {tensor, TensorMap} from "../Tensor"
 
 export interface StemSeparationInput {
-    readonly audio: Float32Array              // mono or interleaved stereo, fixed at 44100 Hz
+    /**
+     * Audio samples in PLANAR layout: `[ch0_s0, ch0_s1, ..., ch0_sN-1,
+     * ch1_s0, ch1_s1, ..., ch1_sN-1]`. This matches the layout produced by
+     * concatenating `AudioBuffer.getChannelData(c)` for each channel and is
+     * what htdemucs's `[1, channels, samples]` input expects directly.
+     * Total length must be `channels * samplesPerChannel`.
+     */
+    readonly audio: Float32Array
     readonly channels: 1 | 2
     readonly sampleRate: number               // expected: 44100
 }
@@ -20,8 +27,8 @@ export interface StemSeparationOutput {
 const HTDEMUCS_SAMPLE_RATE = 44100
 const HTDEMUCS_SEGMENT_SECONDS = 7.8
 const HTDEMUCS_OVERLAP_SECONDS = 0.25
-const HTDEMUCS_INPUT_NAME = "mix"
-const HTDEMUCS_OUTPUT_NAMES = ["drums", "bass", "other", "vocals"] as const
+const STEM_ORDER = ["drums", "bass", "other", "vocals"] as const
+type StemName = typeof STEM_ORDER[number]
 
 const segmentSamples = (sampleRate: number) => Math.round(HTDEMUCS_SEGMENT_SECONDS * sampleRate)
 const overlapSamples = (sampleRate: number) => Math.round(HTDEMUCS_OVERLAP_SECONDS * sampleRate)
@@ -129,14 +136,18 @@ export const StemSeparationTask = defineTask<StemSeparationInput, StemSeparation
         if (input.sampleRate !== HTDEMUCS_SAMPLE_RATE) {
             return panic(`htdemucs requires ${HTDEMUCS_SAMPLE_RATE} Hz; got ${input.sampleRate}`)
         }
+        if (env.inputNames.length === 0) {return panic("Model has no inputs")}
+        if (env.outputNames.length === 0) {return panic("Model has no outputs")}
+        const inputName = env.inputNames[0]
         const channels = input.channels
         const samplesPerChannel = input.audio.length / channels
         const window = segmentSamples(input.sampleRate)
         const overlap = overlapSamples(input.sampleRate)
         const plan = planChunks(samplesPerChannel, window, overlap)
 
-        // Per-stem accumulators, one Float32Array per stem, channel-interleaved.
-        const stemWindows: Record<string, Array<Float32Array>> = {
+        // Per-stem accumulators, one Float32Array per stem (planar layout
+        // [channels * window] per chunk).
+        const stemWindows: Record<StemName, Array<Float32Array>> = {
             drums: [], bass: [], other: [], vocals: []
         }
 
@@ -149,32 +160,49 @@ export const StemSeparationTask = defineTask<StemSeparationInput, StemSeparation
             })
             const start = plan.starts[chunkIndex]
             const chunk = new Float32Array(channels * window)
-            for (let i = 0; i < window; i++) {
-                const sourceIndex = start + i
-                for (let channel = 0; channel < channels; channel++) {
-                    const value = sourceIndex < samplesPerChannel
-                        ? input.audio[sourceIndex * channels + channel]
+            // Both `input.audio` and `chunk` use planar layout
+            //   [c0_s0..c0_sN, c1_s0..c1_sN]
+            // so we read with `c * samplesPerChannel + i` and write with
+            // `c * window + i`.
+            for (let c = 0; c < channels; c++) {
+                for (let i = 0; i < window; i++) {
+                    const sourceIndex = start + i
+                    chunk[c * window + i] = sourceIndex < samplesPerChannel
+                        ? input.audio[c * samplesPerChannel + sourceIndex]
                         : 0
-                    chunk[channel * window + i] = value
                 }
             }
             const feeds: TensorMap = {
-                [HTDEMUCS_INPUT_NAME]: tensor("float32", chunk, [1, channels, window])
+                [inputName]: tensor("float32", chunk, [1, channels, window])
             }
             const output = await env.session(feeds)
-            for (const stem of HTDEMUCS_OUTPUT_NAMES) {
-                const stemTensor = output[stem]
-                if (stemTensor === undefined) {return panic(`Missing output: ${stem}`)}
-                const stemData = stemTensor.data as Float32Array
-                stemWindows[stem].push(stemData)
+            const perStem = extractStems(output, env.outputNames, channels, window)
+            for (const stem of STEM_ORDER) {
+                stemWindows[stem].push(perStem[stem])
             }
             env.progress(clampUnit((chunkIndex + 1) / plan.starts.length))
         }
 
-        const totalLength = samplesPerChannel * channels
+        // Stitch each stem PER CHANNEL (using the original sample-frame
+        // starts), then re-pack the channels into the planar output buffer.
+        // Treating the planar window as one stream and scaling starts by
+        // `channels` causes inter-channel data to overwrite each other and
+        // produces a half-length, garbled signal.
         const stems: Record<string, Float32Array> = {}
-        for (const stem of HTDEMUCS_OUTPUT_NAMES) {
-            stems[stem] = combineWindows(stemWindows[stem], plan.starts.map(s => s * channels), overlap * channels, totalLength)
+        for (const stem of STEM_ORDER) {
+            const windowsPerChannel: Array<Array<Float32Array>> = []
+            for (let c = 0; c < channels; c++) {windowsPerChannel.push([])}
+            for (const win of stemWindows[stem]) {
+                for (let c = 0; c < channels; c++) {
+                    windowsPerChannel[c].push(win.subarray(c * window, (c + 1) * window))
+                }
+            }
+            const merged = new Float32Array(channels * samplesPerChannel)
+            for (let c = 0; c < channels; c++) {
+                const stitched = combineWindows(windowsPerChannel[c], plan.starts, overlap, samplesPerChannel)
+                merged.set(stitched, c * samplesPerChannel)
+            }
+            stems[stem] = merged
         }
 
         return {
@@ -187,3 +215,49 @@ export const StemSeparationTask = defineTask<StemSeparationInput, StemSeparation
         }
     }
 })
+
+/**
+ * Adapt the model's output to the canonical 4-stem array. The export may
+ * emit either:
+ *   - 1 stacked tensor of shape [1, 4, channels, samples] (stem axis at 1),
+ *   - 4 separate tensors, each shaped [1, channels, samples].
+ * The 4 stems are assumed to follow htdemucs's documented order:
+ * drums, bass, other, vocals.
+ */
+const extractStems = (
+    output: TensorMap,
+    outputNames: ReadonlyArray<string>,
+    channels: number,
+    window: number
+): Record<StemName, Float32Array> => {
+    const expectedPerStem = channels * window
+    if (outputNames.length === 1) {
+        const t = asDefined(output[outputNames[0]], `Missing output: ${outputNames[0]}`)
+        const data = t.data as Float32Array
+        const stemAxis = t.dims[1]
+        if (stemAxis !== 4) {
+            return panic(`Cannot interpret single output of shape ${JSON.stringify(t.dims)}; expected stem axis of length 4 at position 1`)
+        }
+        const stride = data.length / 4
+        return {
+            drums:  data.slice(0 * stride, 1 * stride),
+            bass:   data.slice(1 * stride, 2 * stride),
+            other:  data.slice(2 * stride, 3 * stride),
+            vocals: data.slice(3 * stride, 4 * stride)
+        }
+    }
+    if (outputNames.length < 4) {
+        return panic(`Expected at least 4 outputs, got ${outputNames.length}: ${JSON.stringify(outputNames)}`)
+    }
+    const stems: Partial<Record<StemName, Float32Array>> = {}
+    for (let i = 0; i < 4; i++) {
+        const name = outputNames[i]
+        const t = asDefined(output[name], `Missing output: ${name}`)
+        const data = t.data as Float32Array
+        if (data.length !== expectedPerStem) {
+            return panic(`Output "${name}" has ${data.length} samples, expected ${expectedPerStem}`)
+        }
+        stems[STEM_ORDER[i]] = data.slice()
+    }
+    return stems as Record<StemName, Float32Array>
+}
