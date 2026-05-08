@@ -108,6 +108,7 @@ export class EngineHost {
         if (!this.#loadedTasks.has(taskKey)) {return}
         await this.#dispatch<Extract<WorkerToMain, {kind: "ok"}>>({kind: "release", id: this.#nextId(), taskKey})
         this.#loadedTasks.delete(taskKey)
+        this.#names.delete(taskKey)
     }
 
     async shutdown(): Promise<void> {

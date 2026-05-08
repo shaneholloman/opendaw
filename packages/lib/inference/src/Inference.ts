@@ -138,6 +138,17 @@ export namespace Inference {
         })
     }
 
+    /**
+     * Release the in-memory session for `key` (if any). The model bytes stay
+     * cached in OPFS, so a subsequent `preload` with a different
+     * `executionProvider` is the cheap way to switch EPs at runtime.
+     */
+    export const releaseTask = async <K extends TaskKey>(key: K): Promise<void> => {
+        requireInferenceConfig()
+        const engineHost = requireHost()
+        await engineHost.releaseTask(key as string)
+    }
+
     export const acquire = <K extends TaskKey>(key: K): Promise<TaskHandle<K>> => {
         requireInferenceConfig()
         const engineHost = requireHost()

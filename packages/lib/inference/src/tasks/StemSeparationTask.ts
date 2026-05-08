@@ -191,9 +191,11 @@ const htdemucsRun = async (
     for (let chunkIndex = 0; chunkIndex < plan.starts.length; chunkIndex++) {
         env.signal.match({
             none: () => {},
-            some: (signal: AbortSignal) => {
-                if (signal.aborted) {return panic("Cancelled")}
-            }
+            // throwIfAborted re-throws `signal.reason` (e.g. `Errors.AbortError`
+            // from the AiDemux cancel button) so callers can detect the
+            // cancellation via `Errors.isAbort` instead of seeing a generic
+            // `Error("Cancelled")`.
+            some: (signal: AbortSignal) => signal.throwIfAborted()
         })
         const start = plan.starts[chunkIndex]
         const chunk = new Float32Array(channels * window)

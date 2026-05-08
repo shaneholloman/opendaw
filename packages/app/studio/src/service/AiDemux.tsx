@@ -17,7 +17,7 @@ import {WavFile} from "@opendaw/lib-dsp"
 // `@opendaw/lib-inference` is dynamically imported below — keep this as a
 // type-only import, so Vite emits it as a separate chunk that loads on the
 // first menu click instead of being pulled into the studio's boot bundle.
-import type {Inference as InferenceNamespace, TaskKey} from "@opendaw/lib-inference"
+import type {ExecutionProvider, Inference as InferenceNamespace, TaskKey} from "@opendaw/lib-inference"
 import {AudioContentFactory, Project, ProjectMeta, ProjectProfile, Workers} from "@opendaw/studio-core"
 import {InstrumentFactories, Sample} from "@opendaw/studio-adapters"
 import {AudioFileBox} from "@opendaw/studio-boxes"
@@ -68,6 +68,24 @@ const MODELS: ReadonlyArray<ModelOption> = [
 const STEM_NAMES = ["drums", "bass", "other", "vocals"] as const
 type StemName = typeof STEM_NAMES[number]
 
+interface Selection {
+    readonly model: ModelOption
+    readonly provider: ExecutionProvider
+}
+
+const isWebGPUAvailable = (): boolean =>
+    isDefined((navigator as Navigator & {gpu?: unknown}).gpu)
+
+const providerLabel = (provider: ExecutionProvider): string =>
+    provider === "webgpu" ? "WebGPU (GPU)" : "WASM (CPU)"
+
+// Tracks the EP that was last used to load each task's session. When the
+// user picks a different EP we release the in-memory session before
+// preload, forcing a re-create with the new EP. Without this, EngineHost
+// would reuse the cached session regardless of the requested EP, defeating
+// the "test both paths" toggle in the dialog.
+const lastProviderByTask = new Map<StemSeparationKey, ExecutionProvider>()
+
 const decodeAudioFile = async (file: File, sampleRate: number):
     Promise<{ audio: Float32Array, channels: 1 | 2, frames: number }> => {
     const arrayBuffer = await file.arrayBuffer()
@@ -84,16 +102,26 @@ const decodeAudioFile = async (file: File, sampleRate: number):
     return {audio: planar, channels, frames}
 }
 
-const pickModel = async (Inference: typeof InferenceNamespace,
-                         defaultKey: StemSeparationKey): Promise<Option<ModelOption>> => {
+const pickSelection = async (Inference: typeof InferenceNamespace,
+                              defaultKey: StemSeparationKey): Promise<Option<Selection>> => {
+    const webgpu = isWebGPUAvailable()
+    const defaultProvider: ExecutionProvider = webgpu ? "webgpu" : "wasm"
     const renderDescription = (model: ModelOption): string => {
         const size = Bytes.toString(Inference.modelDescriptor(model.key).bytes)
         return `${model.description}\n${size} one-time download.`
     }
-    const select: HTMLSelectElement = (
+    const modelSelect: HTMLSelectElement = (
         <select style={{font: "inherit", padding: "4px 8px", width: "100%"}}>
             {MODELS.map(model =>
                 <option value={model.key} selected={model.key === defaultKey}>{model.label}</option>)}
+        </select>
+    ) as HTMLSelectElement
+    const providerSelect: HTMLSelectElement = (
+        <select style={{font: "inherit", padding: "4px 8px", width: "100%"}}>
+            <option value="webgpu" disabled={!webgpu} selected={defaultProvider === "webgpu"}>
+                {`WebGPU (GPU)${webgpu ? "" : " — not available in this browser"}`}
+            </option>
+            <option value="wasm" selected={defaultProvider === "wasm"}>WASM (CPU)</option>
         </select>
     ) as HTMLSelectElement
     const initial = MODELS.find(model => model.key === defaultKey)
@@ -102,12 +130,12 @@ const pickModel = async (Inference: typeof InferenceNamespace,
             {isDefined(initial) ? renderDescription(initial) : ""}
         </p>
     ) as HTMLParagraphElement
-    select.addEventListener("change", () => {
-        const found = MODELS.find(model => model.key === select.value)
+    modelSelect.addEventListener("change", () => {
+        const found = MODELS.find(model => model.key === modelSelect.value)
         descriptionEl.textContent = isDefined(found) ? renderDescription(found) : ""
     })
     // Dialogs.show only resolves via its built-in primary button; rely on
-    // okText to render "Separate" and read the select value once the
+    // okText to render "Separate" and read the select values once the
     // promise resolves. (Custom buttons close the dialog but don't trigger
     // the resolve closure.)
     const result = await Promises.tryCatch(Dialogs.show({
@@ -115,7 +143,9 @@ const pickModel = async (Inference: typeof InferenceNamespace,
         content: (
             <div style={{display: "flex", flexDirection: "column", gap: "8px", minWidth: "360px"}}>
                 <label>Model</label>
-                {select}
+                {modelSelect}
+                <label style={{marginTop: "4px"}}>Execution provider</label>
+                {providerSelect}
                 {descriptionEl}
             </div>
         ),
@@ -123,8 +153,10 @@ const pickModel = async (Inference: typeof InferenceNamespace,
         cancelable: true
     }))
     if (result.status === "rejected") {return Option.None}
-    const found = MODELS.find(model => model.key === select.value)
-    return isDefined(found) ? Option.wrap(found) : Option.None
+    const found = MODELS.find(model => model.key === modelSelect.value)
+    if (!isDefined(found)) {return Option.None}
+    const provider: ExecutionProvider = providerSelect.value === "webgpu" ? "webgpu" : "wasm"
+    return Option.wrap({model: found, provider})
 }
 
 export namespace AiDemux {
@@ -147,10 +179,10 @@ export namespace AiDemux {
         //    `Inference.modelDescriptor(key).bytes`.
         const Inference = await ensureLib()
 
-        // 3. Pick a model.
-        const modelOption = await pickModel(Inference, "stem-separation")
-        if (modelOption.isEmpty()) {return}
-        const model = modelOption.unwrap()
+        // 3. Pick a model + execution provider.
+        const selectionOpt = await pickSelection(Inference, "stem-separation")
+        if (selectionOpt.isEmpty()) {return}
+        const {model, provider} = selectionOpt.unwrap()
 
         // 3. Ensure a project profile exists (mirrors importStems).
         if (!service.hasProfile) {
@@ -166,7 +198,15 @@ export namespace AiDemux {
         }
         const {audio, channels, frames} = decoded.value
 
-        // 5a. Download dialog (only if the model is not already cached).
+        // 5a. If a session for this task is already loaded with a different
+        //     EP than the user just picked, release it so the next preload
+        //     re-creates the session under the new EP.
+        const previousProvider = lastProviderByTask.get(model.key)
+        if (isDefined(previousProvider) && previousProvider !== provider) {
+            await Inference.releaseTask(model.key)
+        }
+
+        // 5b. Download dialog (only if the model is not already cached).
         const cached = await Inference.isCached(model.key)
         if (!cached) {
             const dlProgress = new DefaultObservableValue<number>(0)
@@ -180,13 +220,12 @@ export namespace AiDemux {
             })
             const preloadResult = await Promises.tryCatch(Inference.preload(model.key, {
                 progress: value => dlProgress.setValue(value),
-                signal: dlController.signal
+                signal: dlController.signal,
+                executionProvider: provider
             }))
             dlDialog.terminate()
             if (preloadResult.status === "rejected") {
-                const isAbort = preloadResult.error === Errors.AbortError
-                    || (preloadResult.error instanceof Error && preloadResult.error.name === "AbortError")
-                if (!isAbort) {
+                if (!Errors.isAbort(preloadResult.error)) {
                     await RuntimeNotifier.info({
                         headline: "Model download failed",
                         message: String(preloadResult.error)
@@ -212,15 +251,16 @@ export namespace AiDemux {
                 cancel: () => loadController.abort(Errors.AbortError)
             })
             const sessionResult = await Promises.tryCatch(Promise.race([
-                Inference.preload(model.key, {signal: loadController.signal}),
+                Inference.preload(model.key, {
+                    signal: loadController.signal,
+                    executionProvider: provider
+                }),
                 new Promise<never>((_, reject) => loadController.signal.addEventListener(
                     "abort", () => reject(Errors.AbortError), {once: true}))
             ]))
             loadDialog.terminate()
             if (sessionResult.status === "rejected") {
-                const isAbort = sessionResult.error === Errors.AbortError
-                    || (sessionResult.error instanceof Error && sessionResult.error.name === "AbortError")
-                if (!isAbort) {
+                if (!Errors.isAbort(sessionResult.error)) {
                     await RuntimeNotifier.info({
                         headline: "AI Demux failed",
                         message: `Could not load model session: ${sessionResult.error}`
@@ -236,6 +276,7 @@ export namespace AiDemux {
         const sepController = new AbortController()
         const sepDialog = RuntimeNotifier.progress({
             headline: "Separating stems",
+            message: `Using ${providerLabel(provider)}`,
             progress: sepProgress,
             cancel: () => sepController.abort(Errors.AbortError)
         })
@@ -244,14 +285,13 @@ export namespace AiDemux {
         }, {
             progress: value => sepProgress.setValue(value),
             signal: sepController.signal,
-            downloadShare: 0
+            downloadShare: 0,
+            executionProvider: provider
         }))
         sepDialog.terminate()
 
         if (inferenceResult.status === "rejected") {
-            const isAbort = inferenceResult.error === Errors.AbortError
-                || (inferenceResult.error instanceof Error && inferenceResult.error.name === "AbortError")
-            if (!isAbort) {
+            if (!Errors.isAbort(inferenceResult.error)) {
                 await RuntimeNotifier.info({
                     headline: "AI Demux failed",
                     message: String(inferenceResult.error)
@@ -260,7 +300,12 @@ export namespace AiDemux {
             return
         }
 
-        // 6. Import each stem and create a Tape track per stem (mirrors importStems).
+        // 6. Inference succeeded with this EP — record it so a later run with
+        //    the same EP skips the release+reload, and a run with a different
+        //    EP triggers it.
+        lastProviderByTask.set(model.key, provider)
+
+        // 7. Import each stem and create a Tape track per stem (mirrors importStems).
         const stems = inferenceResult.value
         const importDialog = RuntimeNotifier.progress({
             headline: "AI Demux",
