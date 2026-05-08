@@ -1,8 +1,17 @@
-import {asDefined, isAbsent, isDefined, Option, panic, Procedure, Provider, Terminable, unitValue} from "@opendaw/lib-std"
+import {
+    asDefined,
+    isAbsent,
+    isDefined,
+    Option,
+    panic,
+    Procedure,
+    Provider,
+    Terminable,
+    unitValue
+} from "@opendaw/lib-std"
 import {ExecutionProvider, ModelDescriptor, TaskDefinition} from "./Task"
-import {TaskInput, TaskKey, TaskOutput} from "./registry"
+import {TaskInput, TaskKey, TaskOutput, TaskRegistry} from "./registry"
 import {InferenceConfig, installInferenceConfig, requireInferenceConfig} from "./InferenceConfig"
-import {TaskRegistry} from "./registry"
 import {EngineHost, runTask} from "./EngineHost"
 import {InferenceEngineError} from "./Errors"
 import {ModelStore} from "./ModelStore"
@@ -74,11 +83,9 @@ export namespace Inference {
         }))
     }
 
-    export const run = <K extends TaskKey>(
-        key: K,
-        input: TaskInput<K>,
-        options?: RunOptions
-    ): Promise<TaskOutput<K>> => {
+    export const run = <K extends TaskKey>(key: K,
+                                           input: TaskInput<K>,
+                                           options?: RunOptions): Promise<TaskOutput<K>> => {
         requireInferenceConfig()
         const engineHost = requireHost()
         const task = lookupTask(key)

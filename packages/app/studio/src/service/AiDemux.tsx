@@ -5,6 +5,8 @@ import {
     Errors,
     isAbsent,
     isDefined,
+    isNull,
+    Nullable,
     Option,
     RuntimeNotifier,
     UUID
@@ -13,7 +15,7 @@ import {Promises} from "@opendaw/lib-runtime"
 import {Files} from "@opendaw/lib-dom"
 import {WavFile} from "@opendaw/lib-dsp"
 // `@opendaw/lib-inference` is dynamically imported below — keep this as a
-// type-only import so Vite emits it as a separate chunk that loads on the
+// type-only import, so Vite emits it as a separate chunk that loads on the
 // first menu click instead of being pulled into the studio's boot bundle.
 import type {Inference as InferenceNamespace, TaskKey} from "@opendaw/lib-inference"
 import {AudioContentFactory, Project, ProjectMeta, ProjectProfile, Workers} from "@opendaw/studio-core"
@@ -23,7 +25,7 @@ import {Dialogs} from "@/ui/components/dialogs.tsx"
 import {StudioService} from "@/service/StudioService"
 
 type InferenceModule = typeof import("@opendaw/lib-inference")
-let inferenceLib: InferenceModule | null = null
+let inferenceLib: Nullable<InferenceModule> = null
 
 /**
  * Lazy-load `@opendaw/lib-inference` and install it (once) on first use.
@@ -31,15 +33,21 @@ let inferenceLib: InferenceModule | null = null
  * 30 KB-ish lib-inference chunk out of the studio's boot bundle.
  */
 const ensureLib = async (): Promise<typeof InferenceNamespace> => {
-    if (inferenceLib === null) {
+    if (isNull(inferenceLib)) {
         inferenceLib = await import("@opendaw/lib-inference")
         inferenceLib.Inference.install({opfs: Workers.Opfs})
     }
     return inferenceLib.Inference
 }
 
+// AiDemux only ever picks a 4-stem separation model. Restrict the key type
+// here so `Inference.run(model.key, ...)` infers `StemSeparationInput`/
+// `StemSeparationOutput` instead of widening to the union of every
+// registered task (which would include `audio-to-midi`).
+type StemSeparationKey = Extract<TaskKey, `stem-separation${string}`>
+
 interface ModelOption {
-    readonly key: TaskKey
+    readonly key: StemSeparationKey
     readonly label: string
     readonly description: string
 }
@@ -77,7 +85,7 @@ const decodeAudioFile = async (file: File, sampleRate: number):
 }
 
 const pickModel = async (Inference: typeof InferenceNamespace,
-                         defaultKey: TaskKey): Promise<Option<ModelOption>> => {
+                         defaultKey: StemSeparationKey): Promise<Option<ModelOption>> => {
     const renderDescription = (model: ModelOption): string => {
         const size = Bytes.toString(Inference.modelDescriptor(model.key).bytes)
         return `${model.description}\n${size} one-time download.`
@@ -146,8 +154,7 @@ export namespace AiDemux {
 
         // 3. Ensure a project profile exists (mirrors importStems).
         if (!service.hasProfile) {
-            (service as unknown as { projectProfileService: { setValue(v: Option<ProjectProfile>): void } })
-                .projectProfileService.setValue(Option.wrap(
+            service.projectProfileService.setValue(Option.wrap(
                 new ProjectProfile(UUID.generate(), Project.new(service), ProjectMeta.init("Untitled"), Option.None)))
         }
 
@@ -234,7 +241,7 @@ export namespace AiDemux {
         })
         const inferenceResult = await Promises.tryCatch(Inference.run(model.key, {
             audio, channels, sampleRate: 44100
-        } as never, {
+        }, {
             progress: value => sepProgress.setValue(value),
             signal: sepController.signal,
             downloadShare: 0
@@ -254,15 +261,13 @@ export namespace AiDemux {
         }
 
         // 6. Import each stem and create a Tape track per stem (mirrors importStems).
-        const stems = inferenceResult.value as unknown as Record<StemName, Float32Array> & {
-            sampleRate: number, channels: 1 | 2
-        }
+        const stems = inferenceResult.value
         const importDialog = RuntimeNotifier.progress({
             headline: "AI Demux",
             message: "Importing stems..."
         })
         const project = service.project
-        const sampleService = (service as unknown as { sampleService: typeof service["sampleService"] }).sampleService
+        const sampleService = service.sampleService
         const importResults: Array<{ name: StemName, sample: Sample }> = []
         for (const stemName of STEM_NAMES) {
             const planar = stems[stemName].subarray(0, channels * frames)
