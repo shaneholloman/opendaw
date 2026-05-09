@@ -72,16 +72,66 @@ HTDEMUCS_JX_URL="${HTDEMUCS_JX_URL:-https://huggingface.co/jackjiangxinfa/demucs
 BASIC_PITCH_DEST="${STAGING_DIR}/basic-pitch/v0.4.0/model.onnx"
 BASIC_PITCH_URL="${BASIC_PITCH_URL:-https://huggingface.co/AEmotionStudio/basic-pitch-onnx-models/resolve/327fd8ccd2f0bb84cbe56b4a0e9d318398ddf763/nmp.onnx}"
 
+# ---------------------------------------------------------------------------
+# Tempo detection: TempoCNN cnn.h5 (Schreiber & Müller, default global-tempo
+# classifier). License: AGPL-3.0 — used at runtime only, NOT bundled into
+# the openDAW SDK. Upstream ships a Keras .h5; convert to ONNX in a
+# throwaway venv with tf2onnx.
+# ---------------------------------------------------------------------------
+TEMPO_CNN_DEST="${STAGING_DIR}/tempo-cnn/v0/model.onnx"
+TEMPO_CNN_H5_URL="${TEMPO_CNN_H5_URL:-https://github.com/hendriks73/tempo-cnn/raw/main/tempocnn/models/cnn.h5}"
+
+convert_tempo_cnn() {
+    if [[ -f "${TEMPO_CNN_DEST}" ]]; then
+        echo "[skip] ${TEMPO_CNN_DEST} already exists"
+        return 0
+    fi
+    # TensorFlow lags Python releases — prefer 3.12 / 3.11 if installed,
+    # fall back to whatever `python3` points at otherwise.
+    local python_bin=""
+    for candidate in python3.12 python3.11 python3; do
+        if command -v "${candidate}" >/dev/null 2>&1; then
+            python_bin="${candidate}"
+            break
+        fi
+    done
+    if [[ -z "${python_bin}" ]]; then
+        echo "[warn] no python3 found — skipping tempo-cnn conversion"
+        return 0
+    fi
+    local h5_file venv_dir
+    h5_file="$(mktemp -t tempo-cnn-XXXXXX).h5"
+    venv_dir="$(mktemp -d -t tempo-cnn-venv-XXXXXX)"
+    echo "[fetch] ${TEMPO_CNN_H5_URL}"
+    curl -fL --progress-bar -o "${h5_file}" "${TEMPO_CNN_H5_URL}"
+    echo "[venv]  ${venv_dir} (tensorflow + tf2onnx, ${python_bin})"
+    "${python_bin}" -m venv "${venv_dir}"
+    # shellcheck disable=SC1091
+    source "${venv_dir}/bin/activate"
+    pip install --quiet --upgrade pip
+    pip install --quiet 'tensorflow' 'tf2onnx'
+    mkdir -p "$(dirname "${TEMPO_CNN_DEST}")"
+    echo "[convert] tf2onnx → ${TEMPO_CNN_DEST}"
+    python -m tf2onnx.convert \
+        --keras "${h5_file}" \
+        --output "${TEMPO_CNN_DEST}" \
+        --opset 13
+    deactivate
+    rm -f "${h5_file}"
+    rm -rf "${venv_dir}"
+}
+
 echo "Staging models into ${STAGING_DIR} for upload to assets.opendaw.studio"
 echo
 
 download_if_missing "${HTDEMUCS_URL}" "${HTDEMUCS_DEST}" || echo "[warn] htdemucs download failed; set HTDEMUCS_URL and retry"
 download_if_missing "${HTDEMUCS_JX_URL}" "${HTDEMUCS_JX_DEST}" || echo "[warn] htdemucs-jx download failed; set HTDEMUCS_JX_URL and retry"
 download_if_missing "${BASIC_PITCH_URL}" "${BASIC_PITCH_DEST}" || echo "[warn] basic-pitch download failed; set BASIC_PITCH_URL and retry"
+convert_tempo_cnn || echo "[warn] tempo-cnn conversion failed; install python3 + retry, or set TEMPO_CNN_H5_URL"
 
 echo
 echo "SHA-256 digests (cross-check against TaskDefinition.model.sha256):"
-for file in "${HTDEMUCS_DEST}" "${HTDEMUCS_JX_DEST}" "${BASIC_PITCH_DEST}"; do
+for file in "${HTDEMUCS_DEST}" "${HTDEMUCS_JX_DEST}" "${BASIC_PITCH_DEST}" "${TEMPO_CNN_DEST}"; do
     if [[ -f "${file}" ]]; then
         printf "  %-60s %s\n" "${file#${REPO_ROOT}/}" "$(print_sha "${file}")"
     fi

@@ -22,6 +22,7 @@ import {Dialogs} from "@/ui/components/dialogs.tsx"
 import {StudioService} from "@/service/StudioService"
 import {Promises} from "@opendaw/lib-runtime"
 import {RegionsShortcuts} from "@/ui/shortcuts/RegionsShortcuts"
+import {ensureInference} from "@/service/InferenceLoader"
 
 type Construct = {
     element: Element
@@ -191,7 +192,35 @@ export const installRegionContextMenu =
                         })
                     }
                 }),
+                MenuItem.default({
+                    label: "Detect BPM (AI)...",
+                    hidden: region.type !== "audio-region" || !Browser.isLocalHost()
+                }).setTriggerProcedure(() => {
+                    if (region.type === "audio-region") {
+                        region.file.data.ifSome(data => {
+                            detectRegionBpm(data.frames[0], data.sampleRate).catch(EmptyExec)
+                        })
+                    }
+                }),
                 DebugMenus.debugBox(region.box)
             )
         })
     }
+
+const detectRegionBpm = async (frames: Float32Array, sampleRate: number): Promise<void> => {
+    const Inference = await ensureInference()
+    const result = await Promises.tryCatch(Inference.run("tempo-detection", {audio: frames, sampleRate}))
+    if (result.status === "rejected") {
+        await Dialogs.info({headline: "Detect BPM (AI)", message: String(result.error)})
+        return
+    }
+    const {bpm, confidence, topCandidates} = result.value
+    const lines = [
+        `${bpm} BPM (confidence ${(confidence * 100).toFixed(0)}%)`,
+        "",
+        "Top candidates:",
+        ...topCandidates.map(candidate =>
+            `  ${candidate.bpm} BPM — ${(candidate.probability * 100).toFixed(1)}%`)
+    ]
+    await Dialogs.info({headline: "Detect BPM (AI)", message: lines.join("\n")})
+}

@@ -5,8 +5,6 @@ import {
     Errors,
     isAbsent,
     isDefined,
-    isNull,
-    Nullable,
     Option,
     RuntimeNotifier,
     UUID
@@ -14,31 +12,16 @@ import {
 import {Promises} from "@opendaw/lib-runtime"
 import {Files} from "@opendaw/lib-dom"
 import {WavFile} from "@opendaw/lib-dsp"
-// `@opendaw/lib-inference` is dynamically imported below — keep this as a
-// type-only import, so Vite emits it as a separate chunk that loads on the
-// first menu click instead of being pulled into the studio's boot bundle.
+// Keep `@opendaw/lib-inference` as a type-only import; the runtime module is
+// loaded by `ensureInference` (see InferenceLoader) so it stays out of the
+// studio's boot bundle.
 import type {ExecutionProvider, Inference as InferenceNamespace, TaskKey} from "@opendaw/lib-inference"
-import {AudioContentFactory, Project, ProjectMeta, ProjectProfile, Workers} from "@opendaw/studio-core"
+import {AudioContentFactory, Project, ProjectMeta, ProjectProfile} from "@opendaw/studio-core"
 import {InstrumentFactories, Sample} from "@opendaw/studio-adapters"
 import {AudioFileBox} from "@opendaw/studio-boxes"
 import {Dialogs} from "@/ui/components/dialogs.tsx"
 import {StudioService} from "@/service/StudioService"
-
-type InferenceModule = typeof import("@opendaw/lib-inference")
-let inferenceLib: Nullable<InferenceModule> = null
-
-/**
- * Lazy-load `@opendaw/lib-inference` and install it (once) on first use.
- * Subsequent calls return the cached module reference. This keeps the
- * 30 KB-ish lib-inference chunk out of the studio's boot bundle.
- */
-const ensureLib = async (): Promise<typeof InferenceNamespace> => {
-    if (isNull(inferenceLib)) {
-        inferenceLib = await import("@opendaw/lib-inference")
-        inferenceLib.Inference.install({opfs: Workers.Opfs})
-    }
-    return inferenceLib.Inference
-}
+import {ensureInference} from "@/service/InferenceLoader"
 
 // AiDemux only ever picks a 4-stem separation model. Restrict the key type
 // here so `Inference.run(model.key, ...)` infers `StemSeparationInput`/
@@ -178,7 +161,7 @@ export namespace AiDemux {
         //    moment that needs the lib; loading here keeps the boot bundle
         //    free of lib-inference while still letting descriptions reflect
         //    `Inference.modelDescriptor(key).bytes`.
-        const Inference = await ensureLib()
+        const Inference = await ensureInference()
 
         // 3. Pick a model + execution provider.
         const selectionOpt = await pickSelection(Inference, "stem-separation")

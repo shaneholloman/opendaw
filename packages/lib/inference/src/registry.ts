@@ -1,10 +1,11 @@
 import {StemSeparationAltTask, StemSeparationTask} from "./tasks/StemSeparationTask"
-import {BasicPitchTask} from "./tasks"
+import {BasicPitchTask, TempoDetectionTask} from "./tasks"
 
 export const TaskRegistry = {
     "stem-separation":     StemSeparationTask,
     "stem-separation-alt": StemSeparationAltTask,
-    "audio-to-midi":       BasicPitchTask
+    "audio-to-midi":       BasicPitchTask,
+    "tempo-detection":     TempoDetectionTask
 } as const
 
 export type TaskKey = keyof typeof TaskRegistry
