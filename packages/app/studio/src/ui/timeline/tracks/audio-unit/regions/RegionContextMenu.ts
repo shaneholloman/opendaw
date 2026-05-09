@@ -1,4 +1,5 @@
-import {EmptyExec, isInstanceOf, Selection, Terminable} from "@opendaw/lib-std"
+import {Bytes, DefaultObservableValue, EmptyExec, Errors, isInstanceOf, RuntimeNotifier, Selection, Terminable}
+    from "@opendaw/lib-std"
 import {
     AudioConsolidation,
     AudioContentModifier,
@@ -209,8 +210,47 @@ export const installRegionContextMenu =
 
 const detectRegionBpm = async (frames: Float32Array, sampleRate: number): Promise<void> => {
     const Inference = await ensureInference()
-    const result = await Promises.tryCatch(Inference.run("tempo-detection", {audio: frames, sampleRate}))
+    // First-time: download with progress (model is ~11 MB, fast on most
+    // connections but visible). Cache hit: skip the dialog entirely;
+    // session creation for the WASM EP is sub-second so it stays silent.
+    const cached = await Inference.isCached("tempo-detection")
+    if (!cached) {
+        const downloadProgress = new DefaultObservableValue<number>(0)
+        const downloadController = new AbortController()
+        const sizeLabel = Bytes.toString(Inference.modelDescriptor("tempo-detection").bytes)
+        const downloadDialog = RuntimeNotifier.progress({
+            headline: "Downloading tempo model",
+            message: `${sizeLabel}, one-time`,
+            progress: downloadProgress,
+            cancel: () => downloadController.abort(Errors.AbortError)
+        })
+        const preloadResult = await Promises.tryCatch(Inference.preload("tempo-detection", {
+            progress: value => downloadProgress.setValue(value),
+            signal: downloadController.signal
+        }))
+        downloadDialog.terminate()
+        if (preloadResult.status === "rejected") {
+            if (Errors.isAbort(preloadResult.error)) {return}
+            await Dialogs.info({headline: "Detect BPM (AI)", message: String(preloadResult.error)})
+            return
+        }
+    }
+    const detectProgress = new DefaultObservableValue<number>(0)
+    const detectController = new AbortController()
+    const detectDialog = RuntimeNotifier.progress({
+        headline: "Detecting tempo",
+        progress: detectProgress,
+        cancel: () => detectController.abort(Errors.AbortError)
+    })
+    const result = await Promises.tryCatch(Inference.run("tempo-detection",
+        {audio: frames, sampleRate}, {
+            progress: value => detectProgress.setValue(value),
+            signal: detectController.signal,
+            downloadShare: 0
+        }))
+    detectDialog.terminate()
     if (result.status === "rejected") {
+        if (Errors.isAbort(result.error)) {return}
         await Dialogs.info({headline: "Detect BPM (AI)", message: String(result.error)})
         return
     }
