@@ -1,19 +1,23 @@
 #!/usr/bin/env bash
 #
-# Populates the assets.opendaw.studio staging folder with inference ONNX
-# models, ready for upload to the production CDN.
+# Fetches missing inference ONNX models into the local staging folder
+# `assets.opendaw.studio/models/<task>/<version>/model.onnx`.
 #
-# Output layout:
-#   assets.opendaw.studio/models/<task>/<version>/model.onnx
+# Only the *.onnx weight files are gitignored; the matching README.md,
+# LICENSE.txt, and meta.json sit alongside them and ARE tracked in the
+# repo. So after a fresh clone the layout and attribution are visible
+# but the heavy binaries are missing, and this script populates them.
 #
-# The lib (`@opendaw/lib-inference`) and the studio runtime fetch from
-# https://assets.opendaw.studio/... so once these files have been
-# uploaded, the studio works without any further configuration.
+# Idempotent: each entry is skipped if the destination already exists.
+# Re-run after a fresh clone, or whenever a task adds a new model or
+# bumps its version. SHA-256 digests printed at the end must match the
+# matching `TaskDefinition.model.sha256` in
+# packages/lib/inference/src/tasks/ — runtime download verifies the SHA.
 #
-# The local staging folder is gitignored. Re-run this script after a
-# fresh checkout, or whenever a task bumps its model version. SHA-256
-# digests printed at the end should match the corresponding
-# TaskDefinition.model.sha256 in packages/lib/inference/src/tasks/.
+# Once the files are present, upload the contents of
+# assets.opendaw.studio/ to the CDN preserving the relative paths. The
+# lib (`@opendaw/lib-inference`) fetches from
+# https://assets.opendaw.studio/...
 #
 set -euo pipefail
 
