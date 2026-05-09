@@ -1,11 +1,11 @@
-import {Bytes, DefaultObservableValue, EmptyExec, Errors, isInstanceOf, RuntimeNotifier, Selection, Terminable}
-    from "@opendaw/lib-std"
+import {EmptyExec, isInstanceOf, RuntimeNotifier, Selection, Terminable} from "@opendaw/lib-std"
 import {
     AudioConsolidation,
     AudioContentModifier,
     ContextMenu,
     ElementCapturing,
     MenuItem,
+    NoteMidiExport,
     TimelineRange
 } from "@opendaw/studio-core"
 import {AnyRegionBoxAdapter, AudioRegionBoxAdapter} from "@opendaw/studio-adapters"
@@ -15,7 +15,6 @@ import {Surface} from "@/ui/surface/Surface.tsx"
 import {RegionTransformer} from "@/ui/timeline/tracks/audio-unit/regions/RegionTransformer.ts"
 import {NameValidator} from "@/ui/validator/name.ts"
 import {DebugMenus} from "@/ui/menu/debug"
-import {NoteMidiExport} from "@opendaw/studio-core"
 import {ColorMenu} from "@/ui/timeline/ColorMenu"
 import {BPMTools} from "@opendaw/lib-dsp"
 import {Browser} from "@opendaw/lib-dom"
@@ -23,7 +22,7 @@ import {Dialogs} from "@/ui/components/dialogs.tsx"
 import {StudioService} from "@/service/StudioService"
 import {Promises} from "@opendaw/lib-runtime"
 import {RegionsShortcuts} from "@/ui/shortcuts/RegionsShortcuts"
-import {ensureInference} from "@/service/InferenceLoader"
+import {TempoDetection} from "@/service/TempoDetection"
 
 type Construct = {
     element: Element
@@ -198,8 +197,9 @@ export const installRegionContextMenu =
                     hidden: region.type !== "audio-region" || !Browser.isLocalHost()
                 }).setTriggerProcedure(() => {
                     if (region.type === "audio-region") {
-                        region.file.data.ifSome(data => {
-                            detectRegionBpm(data.frames[0], data.sampleRate).catch(EmptyExec)
+                        region.file.data.ifSome(async data => {
+                            const bpm = await TempoDetection.runOne(data.frames[0], data.sampleRate, region.label)
+                            await RuntimeNotifier.info({headline: region.label, message: `${bpm} bpm`})
                         })
                     }
                 }),
@@ -207,60 +207,3 @@ export const installRegionContextMenu =
             )
         })
     }
-
-const detectRegionBpm = async (frames: Float32Array, sampleRate: number): Promise<void> => {
-    const Inference = await ensureInference()
-    // First-time: download with progress (model is ~11 MB, fast on most
-    // connections but visible). Cache hit: skip the dialog entirely;
-    // session creation for the WASM EP is sub-second so it stays silent.
-    const cached = await Inference.isCached("tempo-detection")
-    if (!cached) {
-        const downloadProgress = new DefaultObservableValue<number>(0)
-        const downloadController = new AbortController()
-        const sizeLabel = Bytes.toString(Inference.modelDescriptor("tempo-detection").bytes)
-        const downloadDialog = RuntimeNotifier.progress({
-            headline: "Downloading tempo model",
-            message: `${sizeLabel}, one-time`,
-            progress: downloadProgress,
-            cancel: () => downloadController.abort(Errors.AbortError)
-        })
-        const preloadResult = await Promises.tryCatch(Inference.preload("tempo-detection", {
-            progress: value => downloadProgress.setValue(value),
-            signal: downloadController.signal
-        }))
-        downloadDialog.terminate()
-        if (preloadResult.status === "rejected") {
-            if (Errors.isAbort(preloadResult.error)) {return}
-            await Dialogs.info({headline: "Detect BPM (AI)", message: String(preloadResult.error)})
-            return
-        }
-    }
-    const detectProgress = new DefaultObservableValue<number>(0)
-    const detectController = new AbortController()
-    const detectDialog = RuntimeNotifier.progress({
-        headline: "Detecting tempo",
-        progress: detectProgress,
-        cancel: () => detectController.abort(Errors.AbortError)
-    })
-    const result = await Promises.tryCatch(Inference.run("tempo-detection",
-        {audio: frames, sampleRate}, {
-            progress: value => detectProgress.setValue(value),
-            signal: detectController.signal,
-            downloadShare: 0
-        }))
-    detectDialog.terminate()
-    if (result.status === "rejected") {
-        if (Errors.isAbort(result.error)) {return}
-        await Dialogs.info({headline: "Detect BPM (AI)", message: String(result.error)})
-        return
-    }
-    const {bpm, confidence, topCandidates} = result.value
-    const rawPeak = topCandidates[0].bpm
-    // Annotate octave correction so a "raw peak ≠ winner" mismatch reads as
-    // intentional rather than as the dialog disagreeing with itself.
-    const note = rawPeak === bpm
-        ? ""
-        : `\n(raw model peak at ${rawPeak} BPM — corrected to ${bpm} BPM via octave clamp)`
-    const message = `${bpm} BPM - confidence ${(confidence * 100).toFixed(0)}%${note}`
-    await Dialogs.info({headline: "Detect BPM (AI)", message})
-}
