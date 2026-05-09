@@ -169,8 +169,9 @@ export namespace AiDemux {
             }]
         }))
         if (fileResult.status === "rejected") {return}
-        const file = fileResult.value.at(0)
-        if (isAbsent(file)) {return}
+        const fileMaybe = fileResult.value.at(0)
+        if (isAbsent(fileMaybe)) {return}
+        const file: File = fileMaybe
 
         // 2. Lazy-load lib-inference so the model-selection dialog can show
         //    each model's actual size. The dialog is the first user-facing
@@ -184,6 +185,16 @@ export namespace AiDemux {
         if (selectionOpt.isEmpty()) {return}
         const {model, provider} = selectionOpt.unwrap()
 
+        // Suspend the audio context while demuxing: WebGPU shader compile + ORT
+        // inference contend with the audio thread and cause dropouts otherwise.
+        await service.audioContext.suspend()
+        try {
+            await runDemux()
+        } finally {
+            await service.audioContext.resume()
+        }
+
+        async function runDemux(): Promise<void> {
         // 3. Ensure a project profile exists (mirrors importStems).
         if (!service.hasProfile) {
             service.projectProfileService.setValue(Option.wrap(
@@ -354,5 +365,6 @@ export namespace AiDemux {
                 })
             }
         })
+        }
     }
 }
