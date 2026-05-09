@@ -48,6 +48,12 @@ export class SampleStorage extends Storage<Sample, SampleMetaData, SampleStorage
         return Workers.Opfs.write(`${path}/meta.json`, new TextEncoder().encode(JSON.stringify(meta)))
     }
 
+    async loadMeta(uuid: UUID.Bytes): Promise<SampleMetaData> {
+        const path = `${this.folder}/${UUID.toString(uuid)}`
+        const bytes = await Workers.Opfs.read(`${path}/meta.json`)
+        return JSON.parse(new TextDecoder().decode(bytes))
+    }
+
     async load(uuid: UUID.Bytes): Promise<[AudioData, Peaks, SampleMetaData]> {
         const path = `${this.folder}/${UUID.toString(uuid)}`
         const exactBuffer = (bytes: Uint8Array): ArrayBuffer =>

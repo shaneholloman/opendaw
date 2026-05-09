@@ -255,12 +255,12 @@ const detectRegionBpm = async (frames: Float32Array, sampleRate: number): Promis
         return
     }
     const {bpm, confidence, topCandidates} = result.value
-    const lines = [
-        `${bpm} BPM (confidence ${(confidence * 100).toFixed(0)}%)`,
-        "",
-        "Top candidates:",
-        ...topCandidates.map(candidate =>
-            `  ${candidate.bpm} BPM — ${(candidate.probability * 100).toFixed(1)}%`)
-    ]
-    await Dialogs.info({headline: "Detect BPM (AI)", message: lines.join("\n")})
+    const rawPeak = topCandidates[0].bpm
+    // Annotate octave correction so a "raw peak ≠ winner" mismatch reads as
+    // intentional rather than as the dialog disagreeing with itself.
+    const note = rawPeak === bpm
+        ? ""
+        : `\n(raw model peak at ${rawPeak} BPM — corrected to ${bpm} BPM via octave clamp)`
+    const message = `${bpm} BPM - confidence ${(confidence * 100).toFixed(0)}%${note}`
+    await Dialogs.info({headline: "Detect BPM (AI)", message})
 }

@@ -39,6 +39,22 @@ const WINDOW_STRIDE_FRAMES = 128
 const BPM_OFFSET = 30
 const BPM_BINS = 256
 
+// Octave-folding window. TempoCNN tends to pick the half-tempo bin on
+// drum-only material with sparse on-beat patterns (e.g. 154 BPM drums →
+// 77). If the winning bin lands outside this window AND the alternate
+// octave inside the window has at least OCTAVE_MASS_FRAC of the winner's
+// mass, prefer the alternate. The 0.3 threshold is empirical and avoids
+// over-correcting genuine slow/fast tempos where the alt octave has
+// negligible mass.
+const OCTAVE_PREF_MIN = 90
+const OCTAVE_PREF_MAX = 180
+const OCTAVE_MASS_FRAC = 0.3
+
+// Softmax smearing: the model spreads probability across adjacent BPM bins
+// because tempo is a continuous quantity. Summing ±CLUSTER_HALF_WIDTH bins
+// gives a meaningful "this tempo cluster" mass rather than per-bin mass.
+const CLUSTER_HALF_WIDTH = 2
+
 const RESAMPLE_CHUNK_OUT = 128
 
 export const TempoDetectionTask = defineTask<TempoDetectionInput, TempoDetectionOutput>({
@@ -83,11 +99,21 @@ export const TempoDetectionTask = defineTask<TempoDetectionInput, TempoDetection
         }
         const averaged = new Float32Array(BPM_BINS)
         for (let bin = 0; bin < BPM_BINS; bin++) averaged[bin] = accumulated[bin] / numWindows
+        // Top-3 by raw bin mass — picking the bin with highest window-sum
+        // would shift the BPM by ±1 in clusters where adjacent bins share
+        // smearing (e.g. 153 having more mass than 154 in the same cluster
+        // around 154). The winner is locked to the actual peak.
         const topCandidates = topN(averaged, 3)
-        const winner = topCandidates[0]
+        const winner = clampOctave(topCandidates[0], averaged)
+        // Confidence is the cluster mass (±CLUSTER_HALF_WIDTH bins) at the
+        // winner's bin, NOT the single-bin mass. Single-bin reads severely
+        // underestimate confidence because the model spreads probability
+        // across adjacent BPM bins.
+        const winnerBin = winner.bpm - BPM_OFFSET
+        const confidence = windowSum(averaged, winnerBin)
         return {
             bpm: winner.bpm,
-            confidence: clampUnit(winner.probability),
+            confidence: clampUnit(confidence),
             topCandidates
         }
     }
@@ -100,6 +126,27 @@ const topN = (probs: Float32Array, n: number): ReadonlyArray<TempoCandidate> => 
         bpm: BPM_OFFSET + index,
         probability: probs[index]
     }))
+}
+
+const windowSum = (probs: Float32Array, centerBin: number): number => {
+    let sum = 0
+    for (let offset = -CLUSTER_HALF_WIDTH; offset <= CLUSTER_HALF_WIDTH; offset++) {
+        const index = centerBin + offset
+        if (index >= 0 && index < probs.length) {sum += probs[index]}
+    }
+    return sum
+}
+
+const clampOctave = (winner: TempoCandidate, probs: Float32Array): TempoCandidate => {
+    if (winner.bpm >= OCTAVE_PREF_MIN && winner.bpm <= OCTAVE_PREF_MAX) {return winner}
+    const alternate = winner.bpm < OCTAVE_PREF_MIN ? winner.bpm * 2 : winner.bpm / 2
+    if (alternate < OCTAVE_PREF_MIN || alternate > OCTAVE_PREF_MAX) {return winner}
+    if (!Number.isInteger(alternate)) {return winner}
+    const alternateBin = alternate - BPM_OFFSET
+    if (alternateBin < 0 || alternateBin >= probs.length) {return winner}
+    const alternateMass = windowSum(probs, alternateBin)
+    if (alternateMass < winner.probability * OCTAVE_MASS_FRAC) {return winner}
+    return {bpm: alternate, probability: alternateMass}
 }
 
 // 4× / 2× / 1× polyphase decimation to 11025 Hz. Other sample rates are
