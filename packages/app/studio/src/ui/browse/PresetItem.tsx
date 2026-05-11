@@ -1,7 +1,7 @@
 import css from "./PresetItem.sass?inline"
 import {createElement} from "@opendaw/lib-jsx"
 import {Html} from "@opendaw/lib-dom"
-import {isDefined, Nullable, StringComparator} from "@opendaw/lib-std"
+import {isDefined, Lifecycle, Nullable, StringComparator} from "@opendaw/lib-std"
 import {MenuItem, PresetEntry} from "@opendaw/studio-core"
 import {IconSymbol} from "@opendaw/studio-enums"
 import {DragAndDrop} from "@/ui/DragAndDrop"
@@ -9,15 +9,17 @@ import {DragPreset} from "@/ui/AnyDragData"
 import {PresetService} from "@/ui/browse/PresetService"
 import {Icon} from "../components/Icon"
 import {MenuButton} from "@/ui/components/MenuButton"
+import {TextTooltip} from "@/ui/surface/TextTooltip"
 
 const className = Html.adoptStyleSheet(css, "PresetItem")
 
 type Construct = {
     entry: PresetEntry
     presetService: PresetService
+    lifecycle: Lifecycle
 }
 
-export const PresetItem = ({entry, presetService}: Construct): HTMLElement => {
+export const PresetItem = ({entry, presetService, lifecycle}: Construct): HTMLElement => {
     const userMenuRoot: Nullable<MenuItem> = entry.source === "user"
         ? MenuItem.root().setRuntimeChildrenProcedure(parent => {
             const canUpload = new URLSearchParams(location.search).has("access-key")
@@ -32,7 +34,7 @@ export const PresetItem = ({entry, presetService}: Construct): HTMLElement => {
         })
         : null
     const item: HTMLElement = (
-        <div className={className} title={entry.description}>
+        <div className={className}>
             <div className="marker">
                 <Icon className="source"
                       symbol={entry.source === "stock" ? IconSymbol.CloudFolder : IconSymbol.UserFolder}/>
@@ -55,6 +57,9 @@ export const PresetItem = ({entry, presetService}: Construct): HTMLElement => {
             </div>
         </div>
     )
+    if (entry.description.length > 0) {
+        lifecycle.own(TextTooltip.default(item, () => entry.description))
+    }
     item.onclick = () => presetService.activatePreset(entry)
     DragAndDrop.installSource(item, () => ({
         type: "preset",
@@ -79,10 +84,12 @@ export const PresetItem = ({entry, presetService}: Construct): HTMLElement => {
     return item
 }
 
-export const PresetItems = (presets: ReadonlyArray<PresetEntry>, presetService: PresetService): ReadonlyArray<HTMLElement> => {
+export const PresetItems = (presets: ReadonlyArray<PresetEntry>,
+                            presetService: PresetService,
+                            lifecycle: Lifecycle): ReadonlyArray<HTMLElement> => {
     const byName = (left: PresetEntry, right: PresetEntry) =>
         StringComparator(left.name.toLowerCase(), right.name.toLowerCase())
     const user = presets.filter(entry => entry.source === "user").toSorted(byName)
     const stock = presets.filter(entry => entry.source === "stock").toSorted(byName)
-    return [...user, ...stock].map(entry => PresetItem({entry, presetService}))
+    return [...user, ...stock].map(entry => PresetItem({entry, presetService, lifecycle}))
 }

@@ -1,5 +1,5 @@
 import css from "./CompoundItem.sass?inline"
-import {isDefined, Nullable, UUID} from "@opendaw/lib-std"
+import {isDefined, Lifecycle, Nullable, UUID} from "@opendaw/lib-std"
 import {createElement} from "@opendaw/lib-jsx"
 import {Html} from "@opendaw/lib-dom"
 import {IndexedBox} from "@opendaw/lib-box"
@@ -44,11 +44,12 @@ type Construct = {
     onDrop: Nullable<(effects: ReadonlyArray<IndexedBox>) => Promise<void>>
     onRackDrop: Nullable<(instrumentUuid: UUID.String, effectUuids: ReadonlyArray<UUID.String>) => Promise<void>>
     expandKey: string
+    lifecycle: Lifecycle
 }
 
 export const CompoundItem = ({
                                  presetService, expandedKeys, label, icon, presets, expandOnRender,
-                                 dropKind, onDrop, onRackDrop, expandKey
+                                 dropKind, onDrop, onRackDrop, expandKey, lifecycle
                              }: Construct): HTMLElement => {
     const empty = presets.length === 0
     const item: HTMLElement = <div className={Html.buildClassList(className, empty && "empty")}/>
@@ -63,7 +64,7 @@ export const CompoundItem = ({
         </div>
     )
     const presetList: HTMLElement = <div className="preset-list hidden"/>
-    presetList.append(...PresetItems(presets, presetService))
+    presetList.append(...PresetItems(presets, presetService, lifecycle))
     const shouldExpand = !empty && (expandedKeys.has(expandKey) || expandOnRender)
     if (shouldExpand) {
         presetList.classList.remove("hidden")

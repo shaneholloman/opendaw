@@ -6,6 +6,7 @@ import {
     Lifecycle,
     Nullable,
     Predicate,
+    Terminator,
     UUID
 } from "@opendaw/lib-std"
 import {Html} from "@opendaw/lib-dom"
@@ -55,7 +56,12 @@ export const PresetBrowser = ({lifecycle, service}: Construct) => {
     const showStock = new DefaultObservableValue(true)
     const showUser = new DefaultObservableValue(true)
     const tree: HTMLElement = <div className="tree"/>
+    // Per-render lifecycle for item-level subscriptions (e.g. preset tooltips).
+    // Terminated at the start of every render so disposed-of items don't leak
+    // event listeners across re-renders.
+    const itemLifecycle = lifecycle.own(new Terminator())
     const render = () => {
+        itemLifecycle.terminate()
         const query = search.getValue().trim().toLowerCase()
         const stock = showStock.getValue()
         const user = showUser.getValue()
@@ -83,7 +89,8 @@ export const PresetBrowser = ({lifecycle, service}: Construct) => {
                 stockDevices: Object.entries(InstrumentFactories.Named).map(([key, factory]) => ({
                     key, name: factory.defaultName, icon: factory.defaultIcon, brief: factory.briefDescription,
                     presetless: key === "Tape"
-                }))
+                })),
+                lifecycle: itemLifecycle
             }),
             renderCategory({
                 presetService: presets, expandedKeys, allPresets, query, matches, filterActive, searching,
@@ -92,7 +99,8 @@ export const PresetBrowser = ({lifecycle, service}: Construct) => {
                 categoryKey: "audio-effect",
                 compoundLabel: "Chains",
                 compoundCategory: "audio-effect-chain",
-                stockDevices: effectDevices(EffectFactories.AudioNamed)
+                stockDevices: effectDevices(EffectFactories.AudioNamed),
+                lifecycle: itemLifecycle
             }),
             renderCategory({
                 presetService: presets, expandedKeys, allPresets, query, matches, filterActive, searching,
@@ -101,7 +109,8 @@ export const PresetBrowser = ({lifecycle, service}: Construct) => {
                 categoryKey: "midi-effect",
                 compoundLabel: "Chains",
                 compoundCategory: "midi-effect-chain",
-                stockDevices: effectDevices(EffectFactories.MidiNamed)
+                stockDevices: effectDevices(EffectFactories.MidiNamed),
+                lifecycle: itemLifecycle
             })
         )
     }
@@ -163,12 +172,13 @@ type RenderCategoryArgs = {
     compoundLabel: string
     compoundCategory: "audio-unit" | "audio-effect-chain" | "midi-effect-chain"
     stockDevices: ReadonlyArray<StockDeviceMeta>
+    lifecycle: Lifecycle
 }
 
 const renderCategory = (args: RenderCategoryArgs): HTMLElement => {
     const {
         presetService, expandedKeys, allPresets, query, matches, filterActive, searching,
-        label, color, categoryKey, compoundLabel, compoundCategory, stockDevices
+        label, color, categoryKey, compoundLabel, compoundCategory, stockDevices, lifecycle
     } = args
     const section: HTMLElement = <section className="category" style={{"--color": color.toString()}}/>
     section.appendChild(<h1>{label}</h1>)
@@ -197,7 +207,7 @@ const renderCategory = (args: RenderCategoryArgs): HTMLElement => {
             presetService, expandedKeys, device, presets: devicePresets,
             expandOnRender: searching && devicePresets.length > 0,
             onCreate: () => presetService.createDevice(categoryKey, device.key),
-            dropKind, onDrop, instrumentKey, expandKey: deviceExpandKey
+            dropKind, onDrop, instrumentKey, expandKey: deviceExpandKey, lifecycle
         }))
     }
     stockDevices.forEach(renderDevice)
@@ -224,7 +234,7 @@ const renderCategory = (args: RenderCategoryArgs): HTMLElement => {
         section.appendChild(CompoundItem({
             presetService, expandedKeys, label: compoundLabel, icon: compoundIcon, presets: compoundPresets,
             expandOnRender: searching && compoundPresets.length > 0,
-            dropKind, onDrop: onChainDrop, onRackDrop, expandKey: compoundExpandKey
+            dropKind, onDrop: onChainDrop, onRackDrop, expandKey: compoundExpandKey, lifecycle
         }))
     }
     return section

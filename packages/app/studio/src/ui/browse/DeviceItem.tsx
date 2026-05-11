@@ -1,5 +1,5 @@
 import css from "./DeviceItem.sass?inline"
-import {isDefined, Nullable} from "@opendaw/lib-std"
+import {isDefined, Lifecycle, Nullable} from "@opendaw/lib-std"
 import {createElement} from "@opendaw/lib-jsx"
 import {Html} from "@opendaw/lib-dom"
 import {IndexedBox} from "@opendaw/lib-box"
@@ -35,11 +35,12 @@ type Construct = {
     onDrop: Nullable<(effects: ReadonlyArray<IndexedBox>) => Promise<void>>
     instrumentKey: Nullable<InstrumentFactories.Keys>
     expandKey: string
+    lifecycle: Lifecycle
 }
 
 export const DeviceItem = ({
                                presetService, expandedKeys, device, presets, expandOnRender,
-                               onCreate, dropKind, onDrop, instrumentKey, expandKey
+                               onCreate, dropKind, onDrop, instrumentKey, expandKey, lifecycle
                            }: Construct): HTMLElement => {
     const empty = presets.length === 0
     const item: HTMLElement = <div className={Html.buildClassList(className, empty && "empty")}/>
@@ -59,7 +60,7 @@ export const DeviceItem = ({
         </div>
     )
     const presetList: HTMLElement = <div className="preset-list hidden"/>
-    presetList.append(...PresetItems(presets, presetService))
+    presetList.append(...PresetItems(presets, presetService, lifecycle))
     const shouldExpand = !empty && (expandedKeys.has(expandKey) || expandOnRender)
     if (shouldExpand) {
         presetList.classList.remove("hidden")
