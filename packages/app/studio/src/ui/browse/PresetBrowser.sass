@@ -16,7 +16,12 @@ component
     align-items: center
     height: 32px
     column-gap: 4px
-    margin-left: 4px
+    // Sample/Soundfont browsers mount with `fontSize="0.75em"` so their outer
+    // `padding: 0 0.25em` resolves to 3px; this browser inherits the root
+    // 16px so its outer padding is 4px. Trim the filter's margin by 1px to
+    // land at the same panel-edge offset (~7px) without touching the outer
+    // padding (which would also shift the lists).
+    margin-left: 3px
     margin-bottom: 8px
 
   div.loading
