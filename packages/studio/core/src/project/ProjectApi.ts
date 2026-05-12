@@ -50,6 +50,7 @@ import {
     InstrumentFactory,
     InstrumentOptions,
     InstrumentProduct,
+    NoteEventBoxAdapter,
     NoteEventCollectionBoxAdapter,
     ProjectQueries,
     TrackType
@@ -374,6 +375,35 @@ export class ProjectApi {
         const {rootBox} = this.#project
         IndexedBox.removeOrder(rootBox.audioUnits, audioUnitBox.index.getValue())
         audioUnitBox.delete()
+    }
+
+    /**
+     * Duplicate a set of notes so that the copies land flush after the
+     * source block: each copy is shifted by `max(position + duration) −
+     * min(position)` over the input. Returns the newly created note
+     * adapters in the same order as `notes`, so the caller can swap its
+     * selection in one pass. Returns an empty array when the input is
+     * empty or the computed shift is zero. The caller is responsible for
+     * wrapping the call in `editing.modify(...)`.
+     */
+    duplicateNotes(notes: ReadonlyArray<NoteEventBoxAdapter>): ReadonlyArray<NoteEventBoxAdapter> {
+        if (notes.length === 0) {return []}
+        const blockStart = notes.reduce((min, {position}) => Math.min(min, position), Infinity)
+        const blockEnd = notes.reduce((max, {position, duration}) => Math.max(max, position + duration), -Infinity)
+        const shift = blockEnd - blockStart
+        if (shift <= 0) {return []}
+        const {boxGraph, boxAdapters} = this.#project
+        return notes.map(adapter => {
+            const copy = NoteEventBox.create(boxGraph, UUID.generate(), box => {
+                const events = adapter.box.events.targetVertex.unwrap()
+                box.events.refer(events)
+                box.position.setValue(adapter.position + shift)
+                box.duration.setValue(adapter.duration)
+                box.pitch.setValue(adapter.pitch)
+                box.velocity.setValue(adapter.velocity)
+            })
+            return boxAdapters.adapterFor(copy, NoteEventBoxAdapter)
+        })
     }
 
     #createTrack({field, target, trackType, insertIndex}: {
