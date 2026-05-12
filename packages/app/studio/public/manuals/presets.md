@@ -77,8 +77,15 @@ Drag a preset onto the device panel of an existing audio unit.
 
 ## Saving a preset
 
-Saving is done by **dragging an existing device or selection into the Preset browser**. The drop
-target depends on what you want to save.
+There are two ways to save a preset.
+
+1. **Drag** an existing device, chain, or audio unit into the Preset browser. The new preset is
+   stored in your local OPFS library and appears immediately under the matching device row. This
+   is the recommended path — described in the rest of this section.
+2. **Save Preset…** on the audio unit's menu. This exports an `.odp` file to your local disk
+   instead of adding it to the library; see [Device menu](#device-menu) below.
+
+The drop target depends on what you want to save.
 
 ![Save preset dialog](./presets-save-dialog.webp)
 
@@ -113,9 +120,9 @@ row under Instruments.
 There are two scenarios.
 
 1. **You drag only the instrument.** openDAW asks how much you want to capture:
-   - **Cancel**, abort.
-   - **Only Instrument**, falls back to a normal instrument-preset save.
-   - **Entire Chain**, saves the full audio unit as a Rack.
+    - **Cancel**, abort.
+    - **Only Instrument**, falls back to a normal instrument-preset save.
+    - **Entire Chain**, saves the full audio unit as a Rack.
 2. **You drag an effect together with its instrument** (multi-selection from the same audio unit):
    the dialog is skipped, only the selected effects are kept, and the Rack is saved straight away.
 
@@ -143,12 +150,20 @@ A confirmation dialog appears before the file is replaced. For instrument and ra
 dialog also exposes **Include timeline**, pre-filled with the current value of the existing preset
 so subsequent edits do not silently flip the flag.
 
-## Right-click actions on a user preset
+## Hamburger menu on a user preset
 
-Right-click any user preset to open its context menu.
+Every **user** preset entry shows a small menu button (☰) on the right side of its row. Cloud
+presets are read-only and do not show the menu.
+
+![Preset hamburger menu](./presets-hamburger-menu.webp)
+
+Click the icon to reveal the per-preset actions.
 
 - **Edit…**, change the preset's name and description.
-- **Delete**, moves the preset to the trash list (with a confirmation prompt).
+- **Delete**, removes the preset from local storage. A confirmation prompt is shown first.
+
+The hamburger menu sits inside the preset row, but its click is isolated, so opening the menu does
+not also activate the preset.
 
 ## Cloud and user sources
 
