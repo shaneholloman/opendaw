@@ -230,7 +230,6 @@ const renderCategory = (args: RenderCategoryArgs): HTMLElement => {
             : null
         const compoundExpandKey = `compound:${categoryKey}:${compoundCategory}`
         const compoundIcon = compoundCategory === "audio-unit" ? IconSymbol.Cube : IconSymbol.Chain
-        section.appendChild(<hr/>)
         section.appendChild(CompoundItem({
             presetService, expandedKeys, label: compoundLabel, icon: compoundIcon, presets: compoundPresets,
             expandOnRender: searching && compoundPresets.length > 0,
