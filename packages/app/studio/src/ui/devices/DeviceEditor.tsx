@@ -24,7 +24,6 @@ import {StringField} from "@opendaw/lib-box"
 import {Colors, IconSymbol} from "@opendaw/studio-enums"
 import {Promises} from "@opendaw/lib-runtime"
 import {Surface} from "@/ui/surface/Surface"
-import {PresetPager} from "@/ui/devices/PresetPager"
 
 const className = Html.adoptStyleSheet(css, "DeviceEditor")
 
@@ -158,19 +157,55 @@ export const DeviceEditor =
                             Events.subscribe(element, "click", () => editing.modify(() => enabledField.toggle()))
                         )}/>
                     {(createLabel ?? defaultLabelFactory(lifecycle, editing, labelField))()}
-                    {isNotNull(presetCategory) && (
-                        <PresetPager lifecycle={lifecycle}
-                                     visible={service.presets.observePresetAvailability(
-                                         presetCategory, deviceKey, lifecycle)}
-                                     onPresetNavigate={delta => {
-                                         const cursor = service.presets.cursorFor(adapter)
-                                         const stepped = delta < 0
-                                             ? service.presets.prevPresetFor(presetCategory, deviceKey, cursor)
-                                             : service.presets.nextPresetFor(presetCategory, deviceKey, cursor)
-                                         stepped.ifSome(entry =>
-                                             service.presets.applyPresetTo(adapter, entry).catch(console.warn))
-                                     }}/>
-                    )}
+                    {isNotNull(presetCategory) && (() => {
+                        const category = presetCategory
+                        // Folder-icon dropdown showing every preset for this
+                        // device: user presets first (folder icon), then
+                        // stock presets (cloud icon), already sorted in this
+                        // order by `presetsFor`. A separator is inserted at
+                        // the first stock entry that follows any user entry.
+                        // The button is disabled when no presets exist.
+                        const availability = service.presets.observePresetAvailability(
+                            category, deviceKey, lifecycle)
+                        const button: HTMLButtonElement = (
+                            <MenuButton root={MenuItem.root().setRuntimeChildrenProcedure(parent => {
+                                let prevSource: "" | "user" | "stock" = ""
+                                const presets = service.presets.presetsFor(category, deviceKey)
+                                if (presets.length === 0) {
+                                    parent.addMenuItem(MenuItem.default({
+                                        label: "No presets available",
+                                        selectable: false
+                                    }))
+                                } else {
+                                    parent.addMenuItem(MenuItem.header({
+                                        label: "Presets",
+                                        icon: IconSymbol.Folder,
+                                        color
+                                    }))
+                                    presets.forEach(entry => {
+                                        const separatorBefore = prevSource === "user" && entry.source === "stock"
+                                        prevSource = entry.source
+                                        parent.addMenuItem(MenuItem.default({
+                                            label: entry.name,
+                                            icon: entry.source === "user"
+                                                ? IconSymbol.UserFolder
+                                                : IconSymbol.CloudFolder,
+                                            separatorBefore
+                                        }).setTriggerProcedure(() =>
+                                            service.presets.applyPresetTo(adapter, entry).catch(console.warn)))
+                                    })
+                                }
+                            })}
+                                        appearance={{tooltip: "Load preset"}}
+                                        style={{fontSize: "14px", color: "currentColor"}}>
+                                <Icon symbol={IconSymbol.Folder}/>
+                            </MenuButton>
+                        )
+                        const apply = () => {button.disabled = !availability.getValue()}
+                        apply()
+                        lifecycle.own(availability.subscribe(apply))
+                        return button
+                    })()}
                 </header>
                 <MenuButton root={MenuItem.root()
                     .setRuntimeChildrenProcedure(parent => {
