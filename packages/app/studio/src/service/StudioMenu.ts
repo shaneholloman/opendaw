@@ -87,7 +87,7 @@ export const populateStudioMenu = (service: StudioService) => {
                     MenuItem.default({
                         label: "Join Live Room...",
                         icon: IconSymbol.Connected,
-                        separatorBefore: true,
+                        separatorBefore: true
                     }).setTriggerProcedure(() => connectRoom(service)),
                     MenuItem.default({
                         label: "Show MIDI-Keyboard",
@@ -99,7 +99,7 @@ export const populateStudioMenu = (service: StudioService) => {
                     MenuItem.default({
                         label: "Cloud Backup",
                         icon: IconSymbol.CloudFolder,
-                        separatorBefore: true,
+                        separatorBefore: true
                     }).setRuntimeChildrenProcedure(parent => {
                         parent.addMenuItem(
                             MenuItem.default({
@@ -119,7 +119,7 @@ export const populateStudioMenu = (service: StudioService) => {
                     MenuItem.default({
                         label: "Script Editor",
                         separatorBefore: true,
-                        icon: IconSymbol.Code,
+                        icon: IconSymbol.Code
                     }).setTriggerProcedure(() => RouteLocation.get().navigateTo("/scripting")),
                     MenuItem.default({
                         label: "Preferences",

@@ -62,6 +62,7 @@ export const TransportGroup = ({lifecycle, service}: Construct) => {
                     activeColor: Colors.white,
                     tooltip: "Create region from captured notes."
                 }}
+                style={{display: "none"}}
                 onClick={() => service.runIfProject(project => project.commitMidiCapture())}>
             <Icon symbol={IconSymbol.Capture}/>
         </Button>)
