@@ -206,7 +206,7 @@ export class ProjectApi {
             return true
         }
         for (let i = 1; i < tracks.length; i++) {
-            // Snapshot the regions list before mutating; moving via `refer` will
+            // Snapshot the region list before mutating; moving via `refer` will
             // remove the region from this track's collection mid-iteration.
             const regions = [...tracks[i].regions.collection.asArray()]
             for (const region of regions) {
