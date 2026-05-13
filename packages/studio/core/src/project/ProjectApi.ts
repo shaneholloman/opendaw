@@ -44,6 +44,7 @@ import {
     AudioUnitFactory,
     CaptureBox,
     ColorCodes,
+    DeviceAccepts,
     EffectPointerType,
     IndexedAdapterCollectionListener,
     InstrumentBox,
@@ -53,6 +54,7 @@ import {
     NoteEventBoxAdapter,
     NoteEventCollectionBoxAdapter,
     ProjectQueries,
+    TrackBoxAdapter,
     TrackType
 } from "@opendaw/studio-adapters"
 import {Project} from "./Project"
@@ -178,6 +180,50 @@ export class ProjectApi {
 
     createAutomationTrack(audioUnitBox: AudioUnitBox, target: Field<Pointers.Automation>, insertIndex: int = Number.MAX_SAFE_INTEGER): TrackBox {
         return this.#createTrack({field: audioUnitBox.tracks, target, trackType: TrackType.Value, insertIndex})
+    }
+
+    // Packs the audio unit's main tracks (Notes for MIDI units, Audio for audio
+    // units) onto as few lanes as possible. Iterates tracks top-down; for each
+    // region in a non-top track, scans the higher tracks left-to-right and moves
+    // the region to the first one where it doesn't overlap an existing region.
+    // Empty main tracks are then deleted, but at least one is kept; clips and
+    // automation tracks are never moved or deleted.
+    compactTracks(audioUnitBox: AudioUnitBox): void {
+        const adapter = this.#project.boxAdapters.adapterFor(audioUnitBox, AudioUnitBoxAdapter)
+        const inputAdapter = adapter.input.adapter()
+        if (inputAdapter.isEmpty()) {return}
+        const accepts = inputAdapter.unwrap().accepts
+        if (accepts === false) {return}
+        const targetType = DeviceAccepts.toTrackType(accepts)
+        const tracks = adapter.tracks.values()
+            .filter(track => track.type === targetType)
+            .toSorted((a, b) => a.indexField.getValue() - b.indexField.getValue())
+        if (tracks.length < 2) {return}
+        const fits = (track: TrackBoxAdapter, position: ppqn, complete: ppqn): boolean => {
+            for (const existing of track.regions.collection.iterateRange(position, complete)) {
+                if (existing.position < complete && existing.complete > position) {return false}
+            }
+            return true
+        }
+        for (let i = 1; i < tracks.length; i++) {
+            // Snapshot the regions list before mutating; moving via `refer` will
+            // remove the region from this track's collection mid-iteration.
+            const regions = [...tracks[i].regions.collection.asArray()]
+            for (const region of regions) {
+                for (let j = 0; j < i; j++) {
+                    if (fits(tracks[j], region.position, region.complete)) {
+                        region.box.regions.refer(tracks[j].box.regions)
+                        break
+                    }
+                }
+            }
+        }
+        for (let i = tracks.length - 1; i >= 1; i--) {
+            const track = tracks[i]
+            if (track.box.regions.pointerHub.isEmpty() && track.box.clips.pointerHub.isEmpty()) {
+                adapter.deleteTrack(track)
+            }
+        }
     }
 
     createTimeStretchedClip(props: AudioContentFactory.TimeStretchedProps & AudioContentFactory.Clip): AudioClipBox {
