@@ -1,7 +1,7 @@
 # Presets
 
 The **Presets** tab in the Browser panel is where you create, organise, and reuse devices in openDAW.
-A preset can be a single instrument, a single effect, a chain of effects (the *Stash*), or a complete
+A preset can be a single instrument, a single effect, a chain of effects (a *Chain*), or a complete
 audio unit including its instrument, effects, mixer settings and, optionally, its automation timeline
 (a *Rack*).
 
@@ -19,47 +19,43 @@ At the top of the Preset browser there is a small filter bar with two toggles an
 
 ![Filter bar](./presets-filter-bar.webp)
 
-- **Cloud folder icon**, shows or hides *cloud* presets from the openDAW library.
-- **User folder icon**, shows or hides *your own* presets stored locally.
+- **Cloud-folder icon**, shows or hides *stock* presets shipped with openDAW.
+- **User-folder icon**, shows or hides *your own* presets stored locally.
 - **Search field**, filters presets and devices by name. The search matches both preset names and
   the underlying device key, so typing `vaporisateur` will reveal every Vaporisateur preset and
   collapse everything else.
 
-At least one of the two source toggles is always active. Disabling both simultaneously is not
-allowed.
+At least one of the two source toggles is always active. Disabling both at once is not allowed.
 
 ## How presets are organised
 
 Presets are grouped into three colored categories.
 
 - **Instruments** (green), plus a **Racks** row for full audio-unit presets.
-- **Audio Effects** (blue), plus a **Stash** row for audio-effect chains.
-- **MIDI Effects** (orange), plus a **Stash** row for MIDI-effect chains.
+- **Audio Effects** (blue), plus a **Chains** row for audio-effect chains.
+- **MIDI Effects** (orange), plus a **Chains** row for MIDI-effect chains.
 
 Each category lists one row per device. Click the triangle to expand its presets. The header shows
 the device icon, name, and a brief description.
 
-A user preset is shown with a folder-style icon, a cloud preset uses the cloud icon. A tiny timeline
-badge next to the name signals that the preset was saved together with its automation timeline.
-
-## Loading a preset
-
-There are several ways to load a preset, depending on what you want to happen.
-
 ### Click an entry
 
-Clicking a preset name applies it to the currently selected audio unit.
+Clicking a preset name creates it.
 
-- **Instrument or Rack preset**, creates a new audio unit. Selecting an existing unit is not
-  required.
-- **Effect preset or Stash chain**, inserts the effect(s) at the end of the selected audio unit's
-  effect chain. If no audio unit is selected, openDAW asks you to select one first. MIDI presets
-  are rejected on units that do not accept MIDI.
+- **Instrument or Rack preset**, creates a new audio unit. No existing unit needs to be selected.
+- **Effect or Chain preset**, appends the effect(s) to the selected audio unit's effect chain. If
+  no audio unit is selected, openDAW asks you to select one first. MIDI presets are rejected on
+  units that do not accept MIDI.
 
-### Click a device header
+### Preset dropdown on the device header
 
-Clicking the header of a device row creates a fresh, default-state instance of that device on the
-selected audio unit. This is the same as picking it from the device menu.
+Every device header carries a folder icon next to its name. Clicking it opens a dropdown listing
+every preset registered for that device, user presets at the top, and stock presets below the
+separator.
+
+![Preset dropdown on a device header](./presets-device.webp)
+
+Pick an entry to load it in place on the currently selected device.
 
 ### Drag onto a track header
 
@@ -72,27 +68,26 @@ Drag a preset onto the device panel of an existing audio unit.
 
 - **Instrument preset** replaces the unit's instrument.
 - **Rack preset** replaces the entire unit (only allowed on regular instrument units, not on busses).
-- **Audio effect / Stash** is inserted into the audio-effect chain at the drop position.
-- **MIDI effect / Stash** is inserted into the MIDI-effect chain at the drop position.
+- **Audio effect or Chain** is inserted into the audio-effect chain at the drop position.
+- **MIDI effect or Chain** is inserted into the MIDI-effect chain at the drop position.
 
 ## Saving a preset
 
-There are two ways to save a preset.
+There are two ways to save a preset, both writing into the same local library.
 
-1. **Drag** an existing device, chain, or audio unit into the Preset browser. The new preset is
-   stored in your local OPFS library and appears immediately under the matching device row. This
-   is the recommended path — described in the rest of this section.
-2. **Save Preset…** on the audio unit's menu. This exports an `.odp` file to your local disk
-   instead of adding it to the library; see [Device menu](#device-menu) below.
-
-The drop target depends on what you want to save.
+1. **Drag** an existing device, chain, or audio unit into the Preset browser. The preset appears
+   immediately under the matching device row. This is the recommended path, described in the rest
+   of this section.
+2. **Preset** submenu in the device's context menu (right-click on a device header). Entries vary
+   by context but include *Save '…' as Preset*, *Save Entire Audio-Unit Chain*, and *Save Audio /
+   MIDI Effect Chain*.
 
 ![Save preset dialog](./presets-save-dialog.webp)
 
 ### Save a single instrument
 
 Drag the instrument from its device panel header onto the matching device row in the **Instruments**
-category. A *Save Preset* dialog opens with the device's current label as suggested name. You can
+category. A *Save Preset* dialog opens with the device's current label as a suggested name. You can
 optionally enable **Include timeline** to also store the audio unit's automation tracks, regions,
 and clips together with the preset.
 
@@ -102,18 +97,19 @@ Drag a single effect from its device editor onto the matching device row in **Au
 **MIDI Effects**. The save dialog appears without a timeline toggle, since effect presets never
 carry timeline data.
 
-### Save an effect chain (Stash)
+### Save an effect chain (Chains)
 
-Drag one or more effects onto the **Stash** row of the matching effect category. The dialog
+Drag one or more effects onto the **Chains** row of the matching effect category. The dialog
 suggests a name based on the first effect ("Compressor chain" for a multi-effect drag, or just the
-effect's own label for a single one). Stashes can hold a mix of different effect types, as long as
+effect's own label for a single one). Chains can hold a mix of different effect types, as long as
 they all belong to the same category (audio or MIDI).
 
 ### Save a Rack (audio unit)
 
 A Rack preset captures the entire audio unit: instrument, effects, mixer, send/return setup, and
-optionally the timeline. To save one, drag the instrument (or any of its effects) onto the **Racks**
-row under Instruments.
+optionally the timeline. To save one, drag the instrument onto the **Racks** row under Instruments.
+
+![Audio unit with instrument and effect chain](./preset-rack.webp)
 
 ![Rack composition dialog](./presets-rack-dialog.webp)
 
@@ -130,7 +126,7 @@ The Rack save dialog includes the **Include timeline** toggle.
 
 ### The "Include timeline" option
 
-When enabled, the audio unit's tracks, regions, clips and automation are encoded into the preset.
+When enabled, the audio unit's tracks, regions, clips, and automation are encoded into the preset.
 On load, openDAW recreates these timeline elements alongside the device. This lets you store
 complete song-fragments (e.g. a finished drum bus, or a full lead with its melody) for re-use in
 other projects.
@@ -150,26 +146,26 @@ A confirmation dialog appears before the file is replaced. For instrument and ra
 dialog also exposes **Include timeline**, pre-filled with the current value of the existing preset
 so subsequent edits do not silently flip the flag.
 
-## Hamburger menu on a user preset
+## Preset actions menu
 
-Every **user** preset entry shows a small menu button (☰) on the right side of its row. Cloud
+Every **user** preset entry shows a small kebab menu (⋮) on the right side of its row. Stock
 presets are read-only and do not show the menu.
 
-![Preset hamburger menu](./presets-hamburger-menu.webp)
+![Preset actions menu](./presets-hamburger-menu.webp)
 
 Click the icon to reveal the per-preset actions.
 
 - **Edit…**, change the preset's name and description.
 - **Delete**, removes the preset from local storage. A confirmation prompt is shown first.
 
-The hamburger menu sits inside the preset row, but its click is isolated, so opening the menu does
-not also activate the preset.
+The menu sits inside the preset row, but its click is isolated, so opening the menu does not
+activate the preset.
 
-## Cloud and user sources
+## Stock and user sources
 
-- **Cloud** presets are curated by openDAW and cannot be edited or deleted. They are loaded once
-  per session and cached.
+- **Stock** presets are shipped with openDAW and cannot be edited or deleted. They are marked with
+  the cloud-folder icon, loaded once per session, and cached.
 - **User** presets live in your private OPFS storage and are included in **Cloud Backup** runs the
   same way projects and samples are.
-- The first time you open the Preset browser in a session, a small spinner is shown while the cloud
+- The first time you open the Preset browser in a session a small spinner is shown while the stock
   catalogue is fetched. Once cached, switching back to the tab is instant.
