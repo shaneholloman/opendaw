@@ -39,7 +39,7 @@ import {RouteLocation} from "@opendaw/lib-jsx"
 import {PPQN} from "@opendaw/lib-dsp"
 import {AnimationFrame, Browser, ConsoleCommands, Dragging, Files} from "@opendaw/lib-dom"
 import {Promises} from "@opendaw/lib-runtime"
-import {ExportStemsConfiguration, InstrumentFactories, PresetDecoder} from "@opendaw/studio-adapters"
+import {ExportConfiguration, InstrumentFactories, PresetDecoder} from "@opendaw/studio-adapters"
 import {Address} from "@opendaw/lib-box"
 import {
     AudioContentFactory,
@@ -250,7 +250,7 @@ export class StudioService implements ProjectEnv {
                     await RuntimeNotifier.info({headline: "Export Failed", message: String(dialogError)})
                     return
                 }
-                ExportStemsConfiguration.sanitizeExportNamesInPlace(config)
+                ExportConfiguration.sanitizeExportNamesInPlace(config)
                 await this.audioContext.suspend()
                 const {status, error} = await Promises.tryCatch(Mixdowns.exportStems(profile, config))
                 if (status === "rejected" && !Errors.isAbort(error)) {

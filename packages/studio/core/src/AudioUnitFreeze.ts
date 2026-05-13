@@ -1,7 +1,7 @@
 import {DefaultObservableValue, Errors, Notifier, Observer, Option, RuntimeNotifier, Subscription, Terminable, Terminator, UUID} from "@opendaw/lib-std"
 import {AudioData} from "@opendaw/lib-dsp"
 import {Promises} from "@opendaw/lib-runtime"
-import {AudioUnitBoxAdapter, ExportStemsConfiguration} from "@opendaw/studio-adapters"
+import {AudioUnitBoxAdapter, ExportConfiguration} from "@opendaw/studio-adapters"
 import {OfflineEngineRenderer} from "./OfflineEngineRenderer"
 import {Address} from "@opendaw/lib-box"
 
@@ -65,13 +65,15 @@ export class AudioUnitFreeze implements Terminable {
             return
         }
         const audioUnitUuid = UUID.toString(audioUnitBoxAdapter.uuid)
-        const exportConfiguration: ExportStemsConfiguration = {
-            [audioUnitUuid]: {
-                includeAudioEffects: true,
-                includeSends: false,
-                useInstrumentOutput: false,
-                skipChannelStrip: true,
-                fileName: "freeze"
+        const exportConfiguration: ExportConfiguration = {
+            stems: {
+                [audioUnitUuid]: {
+                    includeAudioEffects: true,
+                    includeSends: false,
+                    useInstrumentOutput: false,
+                    skipChannelStrip: true,
+                    fileName: "freeze"
+                }
             }
         }
         const copiedProject = this.#project.copy()
