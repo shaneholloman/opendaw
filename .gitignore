@@ -16,6 +16,7 @@ lerna-debug.log
 /packages/studio/boxes/src/**
 /packages/studio/adapters/src/index.ts
 /packages/app/studio/public/build-info.json
+/packages/app/studio/public/sponsors.json
 /certs/localhost.pem
 /certs/localhost-key.pem
 /packages/app/soundfont/public/soundfonts/
