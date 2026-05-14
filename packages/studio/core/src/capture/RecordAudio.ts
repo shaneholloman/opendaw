@@ -207,13 +207,15 @@ export namespace RecordAudio {
                 const loopFrom = loopArea.from.getValue()
                 const allowTakes = project.engine.preferences.settings.recording.allowTakes
                 if (loopEnabled && allowTakes && currentTake.nonEmpty() && currentPosition < lastPosition) {
-                    // Advance by the deterministic loop length, not by the
-                    // live regionBox.duration. The live value lags by
-                    // (outputLatency + js dispatch jitter), so accumulating it
-                    // across takes drops one outputLatency per loop and the
-                    // peaks drift further with every cycle.
-                    const loopLengthSeconds = tempoMap.intervalToSeconds(
-                        loopArea.from.getValue(), loopArea.to.getValue())
+                    // Compute the take's length from its own start position to
+                    // loopTo, not from loopFrom. When recording begins mid-loop,
+                    // the first take only spans [takePosition, loopTo]; using
+                    // the full loop length would overshoot by (takePosition - loopFrom).
+                    // Stays deterministic (avoids the latency-lagged live
+                    // regionBox.duration that previously caused peak drift):
+                    // subsequent takes start at loopFrom, so this evaluates to
+                    // the full loop length exactly as before.
+                    const loopTo = loopArea.to.getValue()
                     editing.modify(() => {
                         currentTake.ifSome(take => {
                             if (take.regionBox.duration.getValue() <= 0) {
@@ -221,8 +223,10 @@ export namespace RecordAudio {
                                 currentTake = Option.None
                                 return
                             }
-                            finalizeTake(take, loopLengthSeconds)
-                            currentWaveformOffset += loopLengthSeconds
+                            const takeDurationSeconds = tempoMap.intervalToSeconds(
+                                take.regionBox.position.getValue(), loopTo)
+                            finalizeTake(take, takeDurationSeconds)
+                            currentWaveformOffset += takeDurationSeconds
                         })
                         if (currentTake.nonEmpty()) {
                             startNewTake(loopFrom)
