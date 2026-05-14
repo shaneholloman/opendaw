@@ -39,7 +39,7 @@ export namespace RecordAudio {
         console.debug("[RecordAudio] start", {outputLatency})
         const terminator = new Terminator()
         const beats = PPQN.fromSignature(1, project.timelineBox.signature.denominator.getValue())
-        const {editing, engine, boxGraph, timelineBox} = project
+        const {editing, engine, boxGraph, timelineBox, tempoMap} = project
         const originalUuid = recordingWorklet.uuid
         // Note: sampleManager.record() and sourceNode.connect() are called in prepareRecording
         let fileBox: Option<AudioFileBox> = Option.None
@@ -207,16 +207,22 @@ export namespace RecordAudio {
                 const loopFrom = loopArea.from.getValue()
                 const allowTakes = project.engine.preferences.settings.recording.allowTakes
                 if (loopEnabled && allowTakes && currentTake.nonEmpty() && currentPosition < lastPosition) {
+                    // Advance by the deterministic loop length, not by the
+                    // live regionBox.duration. The live value lags by
+                    // (outputLatency + js dispatch jitter), so accumulating it
+                    // across takes drops one outputLatency per loop and the
+                    // peaks drift further with every cycle.
+                    const loopLengthSeconds = tempoMap.intervalToSeconds(
+                        loopArea.from.getValue(), loopArea.to.getValue())
                     editing.modify(() => {
                         currentTake.ifSome(take => {
-                            const actualDurationInSeconds = take.regionBox.duration.getValue()
-                            if (actualDurationInSeconds <= 0) {
+                            if (take.regionBox.duration.getValue() <= 0) {
                                 take.regionBox.delete()
                                 currentTake = Option.None
                                 return
                             }
-                            finalizeTake(take, actualDurationInSeconds)
-                            currentWaveformOffset += actualDurationInSeconds
+                            finalizeTake(take, loopLengthSeconds)
+                            currentWaveformOffset += loopLengthSeconds
                         })
                         if (currentTake.nonEmpty()) {
                             startNewTake(loopFrom)
