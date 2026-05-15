@@ -10,7 +10,7 @@ import {
 } from "@opendaw/studio-core"
 import {Files} from "@opendaw/lib-dom"
 import {Promises} from "@opendaw/lib-runtime"
-import {ExportStemsConfiguration} from "@opendaw/studio-adapters"
+import {ExportConfiguration} from "@opendaw/studio-adapters"
 import {Dialogs} from "@/ui/components/dialogs"
 
 export namespace Mixdowns {
@@ -65,7 +65,7 @@ export namespace Mixdowns {
     }
 
     export const exportStems = async ({project: source, meta}: ProjectProfile,
-                                      config: ExportStemsConfiguration): Promise<void> => {
+                                      config: ExportConfiguration): Promise<void> => {
         const project = source.copy()
         const abortController = new AbortController()
         const progress = new DefaultObservableValue(0.0)
@@ -83,7 +83,7 @@ export namespace Mixdowns {
             return
         }
         const {status: zipStatus, error: zipError} = await Promises.tryCatch(
-            saveZipFile(value, meta, Object.values(config).map(({fileName}) => fileName)))
+            saveZipFile(value, meta, Object.values(config.stems ?? {}).map(({fileName}) => fileName)))
         if (zipStatus === "rejected") {
             await RuntimeNotifier.info({headline: "Export Failed", message: String(zipError)})
             return

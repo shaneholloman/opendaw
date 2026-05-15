@@ -1,7 +1,7 @@
 import {Arrays, Errors, isDefined, Option, RuntimeNotifier, UUID} from "@opendaw/lib-std"
 import {AudioData, RegionCollection, WavFile} from "@opendaw/lib-dsp"
 import {Promises} from "@opendaw/lib-runtime"
-import {AudioRegionBoxAdapter, ExportStemsConfiguration} from "@opendaw/studio-adapters"
+import {AudioRegionBoxAdapter, ExportConfiguration} from "@opendaw/studio-adapters"
 import {
     AudioContentFactory,
     AudioFileBoxFactory,
@@ -27,12 +27,14 @@ export namespace AudioConsolidation {
         const sampleRate = sampleService.audioContext.sampleRate
         const durationSeconds = project.tempoMap.intervalToSeconds(rangeMin, rangeMax)
         const numSamples = Math.ceil(durationSeconds * sampleRate)
-        const exportConfiguration: ExportStemsConfiguration = {
-            [audioUnitUuid]: {
-                includeAudioEffects: false,
-                includeSends: false,
-                useInstrumentOutput: true,
-                fileName: `Merged ${first.file.fileName}`
+        const exportConfiguration: ExportConfiguration = {
+            stems: {
+                [audioUnitUuid]: {
+                    includeAudioEffects: false,
+                    includeSends: false,
+                    useInstrumentOutput: true,
+                    fileName: `Merged ${first.file.fileName}`
+                }
             }
         }
         const selectedUuids = UUID.newSet<UUID.Bytes>(uuid => uuid)

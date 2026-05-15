@@ -3,6 +3,32 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.0.143](https://github.com/andremichelle/openDAW/compare/@opendaw/app-studio@0.0.142...@opendaw/app-studio@0.0.143) (2026-05-14)
+
+**Note:** Version bump only for package @opendaw/app-studio
+
+## [0.0.142](https://github.com/andremichelle/openDAW/compare/@opendaw/app-studio@0.0.141...@opendaw/app-studio@0.0.142) (2026-05-14)
+
+**Note:** Version bump only for package @opendaw/app-studio
+
+## [0.0.141](https://github.com/andremichelle/openDAW/compare/@opendaw/app-studio@0.0.140...@opendaw/app-studio@0.0.141) (2026-05-14)
+
+**Note:** Version bump only for package @opendaw/app-studio
+
+## [0.0.140](https://github.com/andremichelle/openDAW/compare/@opendaw/app-studio@0.0.139...@opendaw/app-studio@0.0.140) (2026-05-13)
+
+**Note:** Version bump only for package @opendaw/app-studio
+
+## [0.0.139](https://github.com/andremichelle/openDAW/compare/@opendaw/app-studio@0.0.138...@opendaw/app-studio@0.0.139) (2026-05-13)
+
+**Note:** Version bump only for package @opendaw/app-studio
+
+## 0.0.138 (2026-05-11)
+
+### Bug Fixes
+
+- prevent overlapping regions in RegionContentStartModifier ([dc15f99](https://github.com/andremichelle/openDAW/commit/dc15f99ab431e290e8d1e5bc12984580f41128ae))
+
 ## [0.0.137](https://github.com/andremichelle/openDAW/compare/@opendaw/app-studio@0.0.136...@opendaw/app-studio@0.0.137) (2026-05-04)
 
 **Note:** Version bump only for package @opendaw/app-studio
